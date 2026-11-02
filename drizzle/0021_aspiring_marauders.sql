@@ -1,0 +1,1 @@
+ALTER TABLE `trip_expenses` ADD `affects_accounts` integer DEFAULT true NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `deadlines` ADD `person` text DEFAULT 'Comune' NOT NULL;

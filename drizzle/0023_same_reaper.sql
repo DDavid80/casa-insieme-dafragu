@@ -1,0 +1,1 @@
+ALTER TABLE `trip_repayments` ADD `kind` text DEFAULT 'money' NOT NULL;
