@@ -1,28 +1,24 @@
 # Backend condiviso Google Apps Script
 
-Il file `Code.gs` è il backend del nuovo archivio Google Sheet. Mantiene i dati
-nel profilo Google condiviso e richiede una password dell'app prima di esporre
-backup, movimenti o impostazioni.
+Questo backend conserva i dati della dashboard nel foglio Google condiviso di
+DaFraguTravel. I record importati restano nel foglio; le password e le sessioni
+sono salvate esclusivamente nelle proprietà protette dello script.
 
-## Pubblicazione
+## Distribuzione attiva
 
-1. Aprire il foglio dati con l'account `DaFraguTravel`.
-2. Selezionare **Estensioni → Apps Script**.
-3. Sostituire il contenuto di `Code.gs` con il file qui presente e salvare.
-4. Da **Distribuisci → Nuova distribuzione**, scegliere **App web**.
-5. Eseguire come `DaFraguTravel`; l'accesso deve essere limitato agli utenti che
-   useranno davvero la dashboard. Copiare l'URL della distribuzione.
+- Foglio dati: `Casa Insieme DaFragu — Dati condivisi`
+- Progetto Apps Script: `Casa Insieme DaFragu — API condivisa`
+- Endpoint web: `https://script.google.com/macros/s/AKfycbzDdamH7lUicUX2RzqqlHtKtSUxf9TNSdHjNNtnCGvFjPBkQVS07L3qf_qqrnHjhhGQ7A/exec`
 
-L'URL non contiene dati, ma non va reso pubblico: il backend ospita la
-contabilità familiare. Il primo accesso alla dashboard configura la password.
+L'endpoint risponde correttamente e richiede ancora la configurazione della
+password dell'app al primo accesso. L'URL può essere invocato pubblicamente,
+ma backup, dati e modifiche sono protetti dalla password e da token di sessione.
 
 ## Struttura dati
 
-- `Dati`: una riga per ogni record; la colonna `dati_json` conserva il formato
-  del backup Casa Insieme senza perdere campi o collegamenti.
+- `Dati`: una riga per ogni record, con `dati_json` nel formato originale.
 - `Configurazione`: versione dello schema e parametri tecnici.
-- `Registro`: traccia delle modifiche effettuate dall'API.
+- `Registro`: traccia delle operazioni effettuate dall'API.
 
-Il backend accetta e restituisce lo stesso contenitore `CASA_INSIEME_BACKUP`
-versione 2 usato dalla dashboard attuale, così il passaggio dei dati è
-reversibile e verificabile.
+Il backend accetta e restituisce il contenitore `CASA_INSIEME_BACKUP` v2:
+l'importazione, le modifiche e un eventuale ripristino restano verificabili.
