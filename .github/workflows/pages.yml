@@ -2,7 +2,7 @@ name: Pubblica dashboard parallela
 on:
   push:
     branches: [google-sheets-parallel]
-    paths: ['parallel-ui/**', 'app/**', 'lib/**', 'parallel-vite.config.ts', '.github/workflows/pages.yml']
+    paths: ['parallel-dashboard/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,12 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npx vite build --config parallel-vite.config.ts
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
