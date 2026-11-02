@@ -13,6 +13,7 @@ const SHEETS = {
 };
 const FORMAT = 'CASA_INSIEME_BACKUP';
 const VERSION = 2;
+const SPREADSHEET_ID = '1YmKhamXa7xaBofV3-s7qUS-Wp7ioYdvgZIBGibfSQ9c';
 
 function doGet(e) {
   return respond_(dispatch_({ action: (e.parameter || {}).action || 'status', query: e.parameter || {} }));
@@ -118,7 +119,7 @@ function remove_(request) {
 }
 
 function getSheet_(name) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  const sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(name);
   if (!sheet) throw new Error(`Foglio mancante: ${name}`);
   return sheet;
 }
