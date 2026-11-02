@@ -1,55 +1,54 @@
-const ENDPOINT = 'https://script.google.com/macros/s/AKfycbzDdamH7lUicUX2RzqqlHtKtSUxf9TNSdHjNNtnCGvFjPBkQVS07L3qf_qqrnHjhhGQ7A/exec';
-const TOKEN_KEY = 'dafragu-sheets-session';
-const nativeFetch = window.fetch.bind(window);
-const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
-const token = () => localStorage.getItem(TOKEN_KEY) || '';
-async function remote(request: Record<string, unknown>) {
-  const response = await nativeFetch(ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...request, token: request.token || token() }) });
-  const data = await response.json();
-  if (!response.ok || !data.ok) throw new Error(data.error || 'Archivio Google non disponibile');
-  return data;
+import { loadDatabase, exportDatabase } from './browser-db';
+import { routes } from './original-routes';
+const ENDPOINT='https://script.google.com/macros/s/AKfycbzDdamH7lUicUX2RzqqlHtKtSUxf9TNSdHjNNtnCGvFjPBkQVS07L3qf_qqrnHjhhGQ7A/exec';
+const TOKEN_KEY='dafragu-sheets-session';
+const nativeFetch=window.fetch.bind(window);
+const json=(d:unknown,status=200)=>new Response(JSON.stringify(d),{status,headers:{'Content-Type':'application/json'}});
+let loaded=false,rawData:Record<string,any[]>={},queue=Promise.resolve();
+async function remote(request:Record<string,any>){
+ const r=await nativeFetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...request,token:localStorage.getItem(TOKEN_KEY)||''})});
+ const d=await r.json();if(!d.ok)throw new Error(d.error||'Archivio Google non disponibile');return d;
 }
-async function records(collection: string) { return (await remote({ action: 'records:list', collection })).records || []; }
-function body(init?: RequestInit) { try { return init?.body ? JSON.parse(String(init.body)) : {}; } catch { return {}; } }
-function collectionEndpoint(path: string) {
-  return ({ '/api/movements':'movements','/api/notes':'notes','/api/utilities':'utilityBills','/api/common-accounts':'commonAccountTransactions','/api/balance-adjustments':'balanceAdjustments','/api/duplicate-acknowledgements':'duplicateAcknowledgements','/api/chat':'chatMessages','/api/decisions':'decisions' } as Record<string,string>)[path];
+async function reload(){const b=await remote({action:'backup:get'});if(!b.data||typeof b.data!=='object')throw new Error('Backup Google non valido');rawData=b.data;await loadDatabase(rawData);loaded=true;}
+async function persist(before:Record<string,any[]>,after:Record<string,any[]>){
+ // Update only records affected by the original Sites operation; never restore or replace the whole archive.
+ for(const [collection,rows] of Object.entries(after)){
+  const old=new Map((before[collection]||[]).map(r=>[String(r.id),r]));
+  const current=new Map(rows.map(r=>[String(r.id),r]));
+  for(const row of rows){const prev=old.get(String(row.id));if(!prev||JSON.stringify(prev)!==JSON.stringify(row))await remote({action:'records:put',collection,record:row});}
+  for(const [id] of old)if(!current.has(id))await remote({action:'records:delete',collection,id});
+ }
 }
-function shape(path: string, rows: any[]) {
-  if (path === '/api/movements') return { movements: rows };
-  if (path === '/api/notes') return { notes: rows };
-  if (path === '/api/utilities') return { bills: rows };
-  if (path === '/api/common-accounts') return { transactions: rows };
-  if (path === '/api/balance-adjustments') return { adjustments: rows };
-  if (path === '/api/duplicate-acknowledgements') return { acknowledgements: rows };
-  if (path === '/api/chat') return { messages: rows };
-  if (path === '/api/decisions') return { decisions: rows };
-  return {};
+async function handle(input:RequestInfo|URL,init?:RequestInit){
+ const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.origin);
+ const method=init?.method||'GET';
+ if(url.pathname==='/api/security'){
+  if(method==='DELETE'){localStorage.removeItem(TOKEN_KEY);loaded=false;return json({locked:true});}
+  const state=await nativeFetch(ENDPOINT).then(r=>r.json());
+  if(method==='GET'){
+   let unlocked=false;if(localStorage.getItem(TOKEN_KEY)){try{await reload();unlocked=true;}catch{localStorage.removeItem(TOKEN_KEY);}}
+   return json({configured:!!state.configured,unlocked,recoveryConfigured:false});
+  }
+  const body=JSON.parse(String(init?.body||'{}'));
+  if(body.mode&& !['unlock','setup'].includes(body.mode))return json({error:'Password e recupero devono essere configurati separatamente nel nuovo archivio.'},501);
+  const d=await remote({action:state.configured?'unlock':'setup',password:body.password});
+  localStorage.setItem(TOKEN_KEY,d.token);loaded=false;return json({unlocked:true});
+ }
+ if(!localStorage.getItem(TOKEN_KEY))return json({error:'Accesso richiesto'},401);
+ const route=routes[url.pathname];if(!route?.[method])return json({error:'Operazione non disponibile sul nuovo archivio'},501);
+ if(!loaded||method!=='GET')await reload();
+ const before=await exportDatabase();
+ const req=new Request(url.href,{...init,method});
+ const result:Response=await route[method](req);
+ if(!result.ok){await loadDatabase(before);return result;}
+ try{const after=await exportDatabase();await persist(before,after);rawData=after;}catch(e){loaded=false;throw e;}
+ return result;
 }
-export function installSheetsApi() {
-  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const raw = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    const url = new URL(raw, window.location.origin); const path = url.pathname;
-    if (!path.startsWith('/api/')) return nativeFetch(input, init);
-    try {
-      if (path === '/api/security') {
-        const state = await nativeFetch(ENDPOINT).then(r => r.json());
-        if ((init?.method || 'GET') === 'GET') return json({ configured: Boolean(state.configured), unlocked: Boolean(token()), recoveryConfigured: false });
-        if (init?.method === 'DELETE') { localStorage.removeItem(TOKEN_KEY); return json({ locked: true }); }
-        const data = body(init); const action = state.configured ? 'unlock' : 'setup'; const result = await remote({ action, password: data.password }); localStorage.setItem(TOKEN_KEY, result.token); return json({ unlocked: true });
-      }
-      const collection = collectionEndpoint(path);
-      if (collection) {
-        if ((init?.method || 'GET') === 'GET') return json(shape(path, await records(collection)));
-        if (init?.method === 'DELETE') { await remote({ action:'records:delete', collection, id:url.searchParams.get('id') || body(init).id }); return json({ ok:true }); }
-        const record = body(init); if (!record.id) record.id = crypto.randomUUID(); await remote({ action:'records:put', collection, record }); return json(path === '/api/movements' ? { movement: record } : path === '/api/notes' ? { note: record } : { ok:true, record }, 201);
-      }
-      if (path === '/api/settings') { const settings = await records('settings'); const setting = settings[0] || {}; return json({ title: setting.title || 'Dafragu Home', commonAccounts: setting.commonAccounts || ['N26','BBVA Dafragu','BBVA Utenze','Ticket Satispay'], settings: setting }); }
-      if (path === '/api/planning') { const [budgets,goals,contributions,deadlines] = await Promise.all(['budgets','goals','goalContributions','deadlines'].map(records)); return json({ budgets,goals,contributions,deadlines }); }
-      if (path === '/api/finance-plans') { const [plans,planPayments,planAdjustments,debts,debtPayments] = await Promise.all(['personalPlans','personalPlanPayments','personalPlanAdjustments','debts','debtPayments'].map(records)); return json({ plans,planPayments,planAdjustments,debts,debtPayments }); }
-      if (path === '/api/travel') { const [trips,expenses,repayments] = await Promise.all(['trips','tripExpenses','tripRepayments'].map(records)); return json({ trips,expenses,repayments }); }
-      if (path === '/api/insurance-plans') { const plans = await records('insurancePlans'); return json({ plans }); }
-      if (path === '/api/backup') { const result = await remote({ action:'backup:get' }); return json(result); }
-      return json({ error: `Funzione parallela non ancora migrata: ${path}` }, 501);
-    } catch (error) { return json({ error: error instanceof Error ? error.message : 'Errore di collegamento' }, 500); }
-  }) as typeof window.fetch;
+export function installSheetsApi(){
+ window.fetch=((input:RequestInfo|URL,init?:RequestInit)=>{
+  const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.origin);
+  if(!url.pathname.startsWith('/api/'))return nativeFetch(input,init);
+  const pending=queue.then(()=>handle(input,init)).catch(e=>json({error:e instanceof Error?e.message:'Errore archivio'},500));
+  queue=pending.then(()=>undefined);return pending;
+ }) as typeof window.fetch;
 }
