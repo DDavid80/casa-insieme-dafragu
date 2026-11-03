@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import '../app/globals.css';
+import './mobile.css';
 import Page from '../app/page';
 import { installSheetsApi } from './sheets-api';
 class ErrorBoundary extends React.Component<{children:React.ReactNode},{error:string}>{
