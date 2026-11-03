@@ -1849,3 +1849,26 @@ input[type="date"] { font-variant-numeric: tabular-nums; }
   color: var(--ink) !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coral) 46%, var(--line)), 0 3px 8px color-mix(in srgb, var(--ink) 10%, transparent) !important;
 }
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --card-bg: #ffffff;
+  --border-color: #e2e8f0;
+}
+
+.dark {
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --card-bg: #1e293b;
+  --border-color: #334155;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
