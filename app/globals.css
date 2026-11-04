@@ -1872,3 +1872,34 @@ body {
   color: var(--text-primary);
   transition: background-color 0.3s ease, color 0.3s ease;
 }
+
+
+/* Moduli su telefono: la barra in basso resta dietro al foglio e il salvataggio rimane visibile. */
+@media (max-width:760px) {
+  .modal-backdrop {
+    z-index:60;
+    align-items:flex-end;
+    padding:6px 6px 0;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .modal {
+    max-height:calc(100dvh - 6px);
+    padding:23px 16px calc(34px + env(safe-area-inset-bottom));
+    overscroll-behavior:contain;
+  }
+  .modal form > button[type="submit"] {
+    position:sticky;
+    bottom:0;
+    z-index:4;
+    min-height:50px;
+    margin-top:6px;
+    box-shadow:0 -10px 20px color-mix(in srgb, var(--card) 92%, transparent), 0 10px 22px rgba(0,0,0,.16);
+  }
+  .modal form > button[type="submit"]::before {
+    content:"";
+    position:absolute;
+    z-index:-1;
+    inset:-14px -8px -8px;
+    background:var(--card);
+  }
+}
