@@ -861,6 +861,51 @@ type TravelModal =
   | { kind: "trip"; item?: Trip }
   | { kind: "expense"; item?: TripExpense }
   | { kind: "repayment"; item?: TripRepayment };
+function TravelSchedule({tripId,remaining,close,refresh}:{tripId:number;remaining:number;close:()=>void;refresh:()=>Promise<void>}) {
+  const [amount,A]=useState(remaining>0?remaining.toFixed(2):"");
+  const [first,F]=useState(today()), [count,C]=useState("4"), [share,S]=useState("50");
+  const [mode,M]=useState("total"), [busy,B]=useState(false), [message,E]=useState("");
+  const lock=useRef(false);
+  const n=Number(count), percent=Number(share), cents=Math.round(Number(amount.replace(",","."))*100);
+  const total=mode==="monthly"?cents*n:cents, davide=Math.round(total*percent/100);
+  const rows:{dueDate:string;person:string;cents:number;index:number}[]=[];
+  if(Number.isSafeInteger(total)&&total>0&&Number.isInteger(n)&&n>=1&&n<=60&&share!==""&&percent>=0&&percent<=100&&first.length===10&&total>=n){
+    const [year,month,day]=first.split("-").map(Number);
+    for(let i=0;i<n;i++){
+      const date=new Date(Date.UTC(year,month-1+i,1)); date.setUTCDate(Math.min(day,new Date(Date.UTC(year,month+i,0)).getUTCDate()));
+      for(const [person,sum] of [["Davide",davide],["Francesca",total-davide]] as const){
+        const value=Math.floor(sum/n)+(i<sum%n?1:0);
+        if(value)rows.push({person,cents:value,dueDate:date.toISOString().slice(0,10),index:i+1});
+      }
+    }
+  }
+  async function savePlan(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();if(lock.current||!rows.length)return;lock.current=true;B(true);E("");
+    try{
+      const res=await fetch("/api/travel");if(!res.ok)throw Error();
+      const existing=(await res.json()).repayments as TripRepayment[];
+      for(const r of rows){
+        const label="Versamento "+r.person;
+        if(existing.some(x=>x.tripId===tripId && x.dueDate===r.dueDate && x.label===label && Math.round(x.amount*100)===r.cents))continue;
+        const saved=await fetch("/api/travel",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"repayment",tripId,label,amount:r.cents/100,dueDate:r.dueDate,paid:false,note:"Piano mensile · rata "+r.index+"/"+n})});
+        if(!saved.ok)throw Error();
+      }
+      await refresh();close();
+    }catch{E("Salvataggio interrotto. Riprova con gli stessi valori: i versamenti già presenti vengono saltati.");}
+    finally{B(false);lock.current=false;}
+  }
+  return <FeatureModal title="Crea piano mensile" onClose={()=>{if(!busy)close()}}><form onSubmit={savePlan}>
+    <label>Calcola da<select value={mode} onChange={e=>M(e.target.value)}><option value="total">Totale da rateizzare</option><option value="monthly">Quota mensile della coppia</option></select></label>
+    <label>Importo (€)<input required inputMode="decimal" value={amount} onChange={e=>A(e.target.value)}/></label>
+    <label>Primo versamento<input required type="date" value={first} onChange={e=>F(e.target.value)}/></label>
+    <div className="form-row"><label>Numero di rate<input type="number" min="1" max="60" value={count} onChange={e=>C(e.target.value)}/></label>
+    <label>Quota Davide (%)<input required type="number" min="0" max="100" step="0.01" value={share} onChange={e=>S(e.target.value)}/></label></div>
+    {rows.length>0&&<><strong>Totale {euro.format(total/100)}</strong><p>Davide {euro.format(davide/100)} · Francesca {euro.format((total-davide)/100)}</p>
+    <div style={{maxHeight:"28vh",overflow:"auto"}}>{rows.map(r=><p key={r.index+r.person}>{r.dueDate.split("-").reverse().join("/")} · {r.person} · {euro.format(r.cents/100)}</p>)}</div></>}
+    <small>Le rate esistenti restano nel piano. I nuovi versamenti sono programmati e non risultano pagati.</small>
+    {message&&<p role="alert">{message}</p>}<button disabled={busy||!rows.length} className="primary-btn full">{busy?"Salvataggio…":"Conferma piano"}</button>
+  </form></FeatureModal>
+}
 export function TravelView({
   commonAccounts,
   onMovementChange,
@@ -870,6 +915,7 @@ export function TravelView({
 }) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [expenses, setExpenses] = useState<TripExpense[]>([]);
+  const [showSchedule,setShowSchedule]=useState(false);
   const [repayments, setRepayments] = useState<TripRepayment[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [modal, setModal] = useState<TravelModal | null>(null);
@@ -1249,6 +1295,9 @@ export function TravelView({
                 {!travelSections.repayments && <small className="collapsed-inline-summary">{isWedding ? `Incassato ${euro.format(giftsReceived)}` : `Versato ${euro.format(repaid)}`}</small>}
               </div>
               <div className="row-actions">
+                {!isWedding&&<button className="secondary-btn" onClick={()=>setShowSchedule(true)}>Crea piano mensile</button>}
+                {showSchedule&&<TravelSchedule tripId={selected.id} remaining={Math.max(0,planned-selectedRepayments.reduce((sum,r)=>sum+r.amount,0))} close={()=>setShowSchedule(false)} refresh={load}/>}
+
                 <button
                   className="secondary-btn"
                   onClick={() => { setGiftType("money"); setModal({ kind: "repayment" }); }}
