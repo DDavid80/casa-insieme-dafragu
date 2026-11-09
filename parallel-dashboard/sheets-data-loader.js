@@ -26,7 +26,7 @@
     const token = localStorage.getItem("dafragu-sheets-session");
     if (!token) return originalFetch(input, init);
     try {
-      const r = await globalThis.fetch.call(globalThis, endpoint, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "backup:get", token }) });
+      const r = await originalFetch(endpoint, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "backup:get", token }) });
       const body = await r.json();
       if (!body.ok || !body.data) return response({ error: body.error || "Archivio Google non disponibile" }, 503);
       return response(snapshot(url.pathname, body.data));
