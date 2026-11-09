@@ -22,14 +22,35 @@ async function persist(before:Record<string,any[]>,after:Record<string,any[]>){
 }
 function snapshot(path:string){
  const rows=(name:string)=>Array.isArray(rawData[name])?rawData[name]:[];
- if(path==='/api/movements')return {movements:rows('movements').map(row=>({...row,amount:Number(row.amountCents??0)/100,ticketAmount:Number(row.ticketAmountCents??0)/100}))};
- if(path==='/api/notes')return {notes:rows('notes')};
- if(path==='/api/utilities')return {bills:rows('utilityBills')};
- if(path==='/api/common-accounts')return {transactions:rows('commonAccountTransactions')};
- if(path==='/api/planning')return {budgets:rows('budgets'),goals:rows('goals'),contributions:rows('goalContributions'),deadlines:rows('deadlines')};
- if(path==='/api/chat')return {messages:rows('chatMessages')};
- if(path==='/api/finance-plans')return {plans:rows('personalPlans'),planPayments:rows('personalPlanPayments').filter(row=>!row.skipped),planAdjustments:rows('personalPlanAdjustments'),debts:rows('debts'),debtAdjustments:rows('debtAdjustments'),debtPayments:rows('debtPayments')};
- if(path==='/api/balance-adjustments')return {adjustments:rows('balanceAdjustments')};
+ // Stessa forma delle rotte originali: importi in euro (non centesimi), stesso ordine e stessi limiti.
+ // Senza questi campi (amount, limit, target, delta...) la dashboard non riesce a mostrare i dati.
+ const euro=(cents:any)=>Number(cents??0)/100;
+ const cmp=(a:any,b:any)=>a<b?-1:a>b?1:0;
+ const sortBy=(list:any[],...order:Array<[string,'asc'|'desc']>)=>[...list].sort((x,y)=>{for(const [key,dir] of order){const c=dir==='asc'?cmp(x[key],y[key]):cmp(y[key],x[key]);if(c)return c;}return 0;});
+ if(path==='/api/movements')return {movements:sortBy(rows('movements'),['date','desc'],['id','desc']).slice(0,500).map(row=>({...row,amount:euro(row.amountCents),ticketAmount:euro(row.ticketAmountCents)}))};
+ if(path==='/api/notes')return {notes:sortBy(rows('notes'),['date','desc'],['id','desc']).slice(0,500)};
+ if(path==='/api/utilities')return {bills:sortBy(rows('utilityBills'),['date','desc'],['id','desc']).slice(0,500).map(row=>({...row,amount:euro(row.amountCents),commonAccount:row.commonAccount??'BBVA Utenze'}))};
+ if(path==='/api/common-accounts'){
+  const personByMovement=new Map(rows('movements').map(row=>[row.id,row.person]));
+  return {transactions:sortBy(rows('commonAccountTransactions'),['date','desc'],['id','desc']).slice(0,1000).map(row=>({...row,amount:euro(row.amountCents),person:personByMovement.get(row.sourceMovementId)??'Comune'}))};
+ }
+ if(path==='/api/planning')return {
+  budgets:sortBy(rows('budgets'),['month','desc'],['category','asc']).map(row=>({...row,limit:euro(row.limitCents)})),
+  goals:sortBy(rows('goals'),['id','desc']).map(row=>({...row,target:euro(row.targetCents)})),
+  contributions:sortBy(rows('goalContributions'),['date','desc'],['id','desc']).map(row=>({...row,amount:euro(row.amountCents)})),
+  deadlines:sortBy(rows('deadlines'),['date','asc'],['id','asc']),
+ };
+ if(path==='/api/chat')return {messages:sortBy(rows('chatMessages'),['id','asc']).slice(0,300)};
+ if(path==='/api/finance-plans')return {
+  plans:sortBy(rows('personalPlans'),['id','desc']),
+  planPayments:sortBy(rows('personalPlanPayments'),['date','desc'],['id','desc']).filter(row=>!row.skipped),
+  planAdjustments:sortBy(rows('personalPlanAdjustments'),['adjustedAt','desc'],['id','desc']),
+  debts:sortBy(rows('debts'),['id','desc']),
+  debtAdjustments:sortBy(rows('debtAdjustments'),['adjustedAt','desc'],['id','desc']),
+  debtPayments:sortBy(rows('debtPayments'),['date','desc'],['id','desc']),
+  schedules:sortBy(rows('scheduledMovements'),['id','desc']),
+ };
+ if(path==='/api/balance-adjustments')return {adjustments:sortBy(rows('balanceAdjustments'),['date','desc'],['id','desc']).map(row=>({...row,delta:euro(row.deltaCents),resultingBalance:euro(row.resultingBalanceCents)}))};
  if(path==='/api/settings'){
   const setting=rows('settings')[0]??{};let commonAccounts=['N26','BBVA Dafragu','BBVA Utenze','Ticket Satispay'];
   try{const parsed=JSON.parse(setting.commonAccounts??'[]');if(Array.isArray(parsed)&&parsed.length)commonAccounts=parsed;}catch{}
