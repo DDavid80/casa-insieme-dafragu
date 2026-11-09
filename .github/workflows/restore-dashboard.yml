@@ -1,0 +1,31 @@
+name: Restore Dashboard
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/restore-dashboard.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore page.tsx from good commit
+        run: |
+          git checkout 45b41bcf7d6c772141449f2b54d849cb25e5637d -- app/page.tsx
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/page.tsx
+          if git diff --cached --quiet; then
+            echo "page.tsx already restored"
+          else
+            git commit -m "Ripristina dashboard completa Casa Insieme (page.tsx)"
+            git push
+          fi
