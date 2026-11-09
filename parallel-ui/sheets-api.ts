@@ -9,7 +9,8 @@ async function remote(request:Record<string,any>){
  const r=await nativeFetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...request,token:localStorage.getItem(TOKEN_KEY)||''})});
  const d=await r.json();if(!d.ok)throw new Error(d.error||'Archivio Google non disponibile');return d;
 }
-async function reload(){const b=await remote({action:'backup:get'});if(!b.data||typeof b.data!=='object')throw new Error('Backup Google non valido');rawData=b.data;await loadDatabase(rawData);loaded=true;}
+async function reload(){const b=await remote({action:'backup:get'});if(!b.data||typeof b.data!=='object')throw new Error('Backup Google non valido');rawData=b.data;loaded=true;}
+async function prepareWrite(){await reload();await loadDatabase(rawData);}
 async function persist(before:Record<string,any[]>,after:Record<string,any[]>){
  // Update only records affected by the original Sites operation; never restore or replace the whole archive.
  for(const [collection,rows] of Object.entries(after)){
@@ -18,6 +19,23 @@ async function persist(before:Record<string,any[]>,after:Record<string,any[]>){
   for(const row of rows){const prev=old.get(String(row.id));if(!prev||JSON.stringify(prev)!==JSON.stringify(row))await remote({action:'records:put',collection,record:row});}
   for(const [id] of old)if(!current.has(id))await remote({action:'records:delete',collection,id});
  }
+}
+function snapshot(path:string){
+ const rows=(name:string)=>Array.isArray(rawData[name])?rawData[name]:[];
+ if(path==='/api/movements')return {movements:rows('movements').map(row=>({...row,amount:Number(row.amountCents??0)/100,ticketAmount:Number(row.ticketAmountCents??0)/100}))};
+ if(path==='/api/notes')return {notes:rows('notes')};
+ if(path==='/api/utilities')return {bills:rows('utilityBills')};
+ if(path==='/api/common-accounts')return {transactions:rows('commonAccountTransactions')};
+ if(path==='/api/planning')return {budgets:rows('budgets'),goals:rows('goals'),contributions:rows('goalContributions'),deadlines:rows('deadlines')};
+ if(path==='/api/chat')return {messages:rows('chatMessages')};
+ if(path==='/api/finance-plans')return {plans:rows('personalPlans'),planPayments:rows('personalPlanPayments').filter(row=>!row.skipped),planAdjustments:rows('personalPlanAdjustments'),debts:rows('debts'),debtAdjustments:rows('debtAdjustments'),debtPayments:rows('debtPayments')};
+ if(path==='/api/balance-adjustments')return {adjustments:rows('balanceAdjustments')};
+ if(path==='/api/settings'){
+  const setting=rows('settings')[0]??{};let commonAccounts=['N26','BBVA Dafragu','BBVA Utenze','Ticket Satispay'];
+  try{const parsed=JSON.parse(setting.commonAccounts??'[]');if(Array.isArray(parsed)&&parsed.length)commonAccounts=parsed;}catch{}
+  return {title:setting.title??'Casa Insieme',commonAccounts};
+ }
+ return null;
 }
 async function handle(input:RequestInfo|URL,init?:RequestInit){
  const url=new URL(typeof input==='string'?input:input instanceof URL?input.href:input.url,location.origin);
@@ -36,7 +54,9 @@ async function handle(input:RequestInfo|URL,init?:RequestInit){
  }
  if(!localStorage.getItem(TOKEN_KEY))return json({error:'Accesso richiesto'},401);
  const route=routes[url.pathname];if(!route?.[method])return json({error:'Operazione non disponibile sul nuovo archivio'},501);
- if(!loaded||method!=='GET')await reload();
+ if(!loaded)await reload();
+ if(method==='GET'){const cached=snapshot(url.pathname);if(cached)return json(cached);}
+ if(method!=='GET')await prepareWrite();else await loadDatabase(rawData);
  const before=await exportDatabase();
  const req=new Request(url.href,{...init,method});
  const result:Response=await route[method](req);
