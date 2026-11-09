@@ -861,49 +861,56 @@ type TravelModal =
   | { kind: "trip"; item?: Trip }
   | { kind: "expense"; item?: TripExpense }
   | { kind: "repayment"; item?: TripRepayment };
-function TravelSchedule({tripId,remaining,close,refresh}:{tripId:number;remaining:number;close:()=>void;refresh:()=>Promise<void>}) {
-  const [amount,A]=useState(remaining>0?remaining.toFixed(2):"");
-  const [first,F]=useState(today()), [count,C]=useState("4"), [share,S]=useState("50");
-  const [mode,M]=useState("total"), [busy,B]=useState(false), [message,E]=useState("");
-  const lock=useRef(false);
-  const n=Number(count), percent=Number(share), cents=Math.round(Number(amount.replace(",","."))*100);
-  const total=mode==="monthly"?cents*n:cents, davide=Math.round(total*percent/100);
-  const rows:{dueDate:string;person:string;cents:number;index:number}[]=[];
-  if(Number.isSafeInteger(total)&&total>0&&Number.isInteger(n)&&n>=1&&n<=60&&share!==""&&percent>=0&&percent<=100&&first.length===10&&total>=n){
-    const [year,month,day]=first.split("-").map(Number);
-    for(let i=0;i<n;i++){
-      const date=new Date(Date.UTC(year,month-1+i,1)); date.setUTCDate(Math.min(day,new Date(Date.UTC(year,month+i,0)).getUTCDate()));
-      for(const [person,sum] of [["Davide",davide],["Francesca",total-davide]] as const){
-        const value=Math.floor(sum/n)+(i<sum%n?1:0);
-        if(value)rows.push({person,cents:value,dueDate:date.toISOString().slice(0,10),index:i+1});
-      }
-    }
-  }
-  async function savePlan(e:FormEvent<HTMLFormElement>){
-    e.preventDefault();if(lock.current||!rows.length)return;lock.current=true;B(true);E("");
-    try{
-      const res=await fetch("/api/travel");if(!res.ok)throw Error();
-      const existing=(await res.json()).repayments as TripRepayment[];
-      for(const r of rows){
-        const label="Versamento "+r.person;
-        if(existing.some(x=>x.tripId===tripId && x.dueDate===r.dueDate && x.label===label && Math.round(x.amount*100)===r.cents))continue;
-        const saved=await fetch("/api/travel",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"repayment",tripId,label,amount:r.cents/100,dueDate:r.dueDate,paid:false,note:"Piano mensile · rata "+r.index+"/"+n})});
-        if(!saved.ok)throw Error();
-      }
+function TravelSchedule({tripId,cost,items,close,refresh}:{tripId:number;cost:number;items:TripRepayment[];close:()=>void;refresh:()=>Promise<void>}) {
+  const people=["Davide","Francesca"], money=(c:number)=>euro.format(c/100);
+  const cent=(n:number)=>Math.round(n*100), show=(c:number)=>(c/100).toFixed(2).replace(".",",");
+  const parse=(s:string)=>/^\d+(?:[.,]\d{1,2})?$/.test(s)?cent(Number(s.replace(",","."))):NaN;
+  const records=items.filter(r=>r.kind!=="object"), who=(s:string)=>people.findIndex(p=>s.trim().toLowerCase()===("Versamento "+p).toLowerCase()||s.trim().toLowerCase()===p.toLowerCase());
+  const booked=people.map((_,i)=>records.reduce((s,r)=>s+(who(r.label)===i?cent(r.amount):0),0));
+  const paid=records.reduce((s,r)=>s+(r.paid?cent(r.amount):0),0), bookedAll=records.reduce((s,r)=>s+cent(r.amount),0), total=cent(cost);
+  const free=Math.max(0,total-bookedAll), share=booked[0]&&!booked[1]?0:booked[1]&&!booked[0]?free:Math.floor(free/2);
+  const [forms,setForms]=useState(()=>people.map((_,i)=>({target:show(booked[i]+(i?free-share:share)),quota:"",date:today()})));
+  const set=(i:number,key:"target"|"quota"|"date",v:string)=>setForms(old=>old.map((f,j)=>j===i?{...f,[key]:v}:f));
+  const [busy,B]=useState(false),[message,E]=useState("");const lock=useRef(false);
+  type Row={date:string;i:number;c:number};
+  const rows:Row[]=[];let problem="",allocated=bookedAll;
+  forms.forEach((f,i)=>{
+    const target=parse(f.target),extra=target-booked[i],monthly=parse(f.quota);allocated+=extra;
+    if(!Number.isSafeInteger(target)||extra<0){problem="Il totale personale deve coprire almeno le rate già presenti.";return}
+    if(!extra)return;
+    if(!(monthly>0)||!f.date){problem="Inserisci quota mensile e prima data per ogni importo ancora da programmare.";return}
+    const count=Math.ceil(extra/monthly);if(count>120){problem="La quota deve coprire il totale entro 120 mesi.";return}
+    const [y,m,d]=f.date.split("-").map(Number);
+    for(let j=0;j<count;j++){const dt=new Date(Date.UTC(y,m-1+j,1));dt.setUTCDate(Math.min(d,new Date(Date.UTC(y,m+j,0)).getUTCDate()));rows.push({date:dt.toISOString().slice(0,10),i,c:Math.min(monthly,extra-j*monthly)})}
+  });
+  if(allocated>total)problem="Le quote superano il costo del viaggio.";
+  const calendar=new Map<string,number[]>();const add=(date:string,i:number,c:number)=>{const v=calendar.get(date)||[0,0,0];v[i<0?2:i]+=c;calendar.set(date,v)};
+  records.filter(r=>!r.paid).forEach(r=>add(r.dueDate,who(r.label),cent(r.amount)));rows.forEach(r=>add(r.date,r.i,r.c));
+  let balance=total-paid;
+  async function save(e:FormEvent<HTMLFormElement>){e.preventDefault();if(lock.current||problem||!rows.length)return;lock.current=true;B(true);E("");
+    try{const res=await fetch("/api/travel");if(!res.ok)throw Error();const live=(await res.json()).repayments.filter((r:TripRepayment)=>r.tripId===tripId) as TripRepayment[];
+      const original=new Set(items.map(r=>r.id));const key=(r:Row)=>"Piano mensile · "+people[r.i]+" · "+r.date+" · "+r.c;
+      if(live.some(r=>!original.has(r.id)&&!rows.some(x=>key(x)===r.note))||items.some(r=>!live.some(v=>v.id===r.id&&v.amount===r.amount&&v.paid===r.paid&&v.dueDate===r.dueDate&&v.label===r.label))){E("Il piano è cambiato. Chiudi e riapri per aggiornare l’anteprima.");await refresh();return}
+      for(const r of rows){if(live.some(v=>!original.has(v.id)&&v.note===key(r)))continue;
+        const saved=await fetch("/api/travel",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"repayment",tripId,label:"Versamento "+people[r.i],amount:r.c/100,dueDate:r.date,paid:false,note:key(r)})});if(!saved.ok)throw Error()}
       await refresh();close();
-    }catch{E("Salvataggio interrotto. Riprova con gli stessi valori: i versamenti già presenti vengono saltati.");}
-    finally{B(false);lock.current=false;}
-  }
-  return <FeatureModal title="Crea piano mensile" onClose={()=>{if(!busy)close()}}><form onSubmit={savePlan}>
-    <label>Calcola da<select value={mode} onChange={e=>M(e.target.value)}><option value="total">Totale da rateizzare</option><option value="monthly">Quota mensile della coppia</option></select></label>
-    <label>Importo (€)<input required inputMode="decimal" value={amount} onChange={e=>A(e.target.value)}/></label>
-    <label>Primo versamento<input required type="date" value={first} onChange={e=>F(e.target.value)}/></label>
-    <div className="form-row"><label>Numero di rate<input type="number" min="1" max="60" value={count} onChange={e=>C(e.target.value)}/></label>
-    <label>Quota Davide (%)<input required type="number" min="0" max="100" step="0.01" value={share} onChange={e=>S(e.target.value)}/></label></div>
-    {rows.length>0&&<><strong>Totale {euro.format(total/100)}</strong><p>Davide {euro.format(davide/100)} · Francesca {euro.format((total-davide)/100)}</p>
-    <div style={{maxHeight:"28vh",overflow:"auto"}}>{rows.map(r=><p key={r.index+r.person}>{r.dueDate.split("-").reverse().join("/")} · {r.person} · {euro.format(r.cents/100)}</p>)}</div></>}
-    <small>Le rate esistenti restano nel piano. I nuovi versamenti sono programmati e non risultano pagati.</small>
-    {message&&<p role="alert">{message}</p>}<button disabled={busy||!rows.length} className="primary-btn full">{busy?"Salvataggio…":"Conferma piano"}</button>
+    }catch{E("Salvataggio interrotto. Riprova con gli stessi valori.")}finally{lock.current=false;B(false)}}
+  return <FeatureModal title="Dividete la spesa del viaggio" onClose={()=>{if(!busy)close()}}><form onSubmit={save}>
+    <p><strong>Costo del viaggio: {money(total)}</strong><br/>Già versato: {money(paid)} · Ancora da versare: {money(total-paid)}</p>
+    {forms.map((f,i)=>{const own=records.filter(r=>who(r.label)===i),extra=parse(f.target)-booked[i],nr=rows.filter(r=>r.i===i);return <fieldset key={i} style={{minWidth:0,border:"1px solid currentColor",borderRadius:12,padding:12}}>
+      <legend><strong>{people[i]}</strong></legend><small>{own.length} versamenti già inseriti · {money(booked[i])}</small>
+      <label>Totale a carico (€)<input inputMode="decimal" value={f.target} onChange={e=>set(i,"target",e.target.value)}/></label>
+      {extra>0&&<><label>Quota mensile (€)<input inputMode="decimal" placeholder="Es. 450" value={f.quota} onChange={e=>set(i,"quota",e.target.value)}/></label>
+      <label>Primo nuovo versamento<input type="date" value={f.date} onChange={e=>set(i,"date",e.target.value)}/></label></>}
+      {nr.length>0&&<small>{nr.length} nuove rate · ultima da {money(nr[nr.length-1].c)}</small>}{extra===0&&<p>Quota già coperta dal piano.</p>}
+    </fieldset>})}
+    <strong>Calendario previsto</strong>
+    <div style={{overflow:"auto",maxHeight:"32vh"}}><table style={{width:"100%",fontSize:"0.85rem",textAlign:"right"}}><thead><tr>{["Data","Davide","Francesca",...(Array.from(calendar.values()).some(v=>v[2])?["Altro"]:[]),"Totale","Residuo"].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>
+    {[...calendar].sort(([a],[b])=>a.localeCompare(b)).map(([date,v])=>{const day=v.reduce((a,b)=>a+b,0);balance-=day;return <tr key={date}><td>{date.split("-").reverse().join("/")}</td>{[...v.slice(0,2),...(Array.from(calendar.values()).some(v=>v[2])?[v[2]]:[]),day,balance].map((c,i)=><td key={i}>{c||i>=v.length-1?money(c):"—"}</td>)}</tr>})}
+    </tbody></table></div>
+    <small>Il residuo è una previsione. Solo le rate spuntate risultano versate.</small>
+    {problem&&<small>{problem}</small>}{message&&<p role="alert">{message}</p>}
+    <button className="primary-btn full" disabled={busy||!!problem||!rows.length}>{busy?"Salvataggio…":"Conferma "+rows.length+" nuovi versamenti"}</button>
   </form></FeatureModal>
 }
 export function TravelView({
@@ -1296,7 +1303,7 @@ export function TravelView({
               </div>
               <div className="row-actions">
                 {!isWedding&&<button className="secondary-btn" onClick={()=>setShowSchedule(true)}>Crea piano mensile</button>}
-                {showSchedule&&<TravelSchedule tripId={selected.id} remaining={Math.max(0,planned-selectedRepayments.reduce((sum,r)=>sum+r.amount,0))} close={()=>setShowSchedule(false)} refresh={load}/>}
+                {showSchedule&&<TravelSchedule tripId={selected.id} cost={planned} items={selectedRepayments} close={()=>setShowSchedule(false)} refresh={load}/>}
 
                 <button
                   className="secondary-btn"
