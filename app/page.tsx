@@ -292,6 +292,10 @@ export default function Home() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [contributions, setContributions] = useState<GoalContribution[]>([]);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
+  const [draftAccount,setDraftAccount]=useState("");
+  const [draftAmount,setDraftAmount]=useState("");
+  const [draftDirection,setDraftDirection]=useState<"Entrata"|"Spesa">("Spesa");
+  const [draftDate,setDraftDate]=useState(localDateKey());
   const [commonModalOpen, setCommonModalOpen] = useState(false);
   const [editingCommon, setEditingCommon] = useState<CommonTransaction | null>(
     null,
@@ -2279,7 +2283,7 @@ export default function Home() {
             selectedAccount={selectedCommonAccount}
             selectedPerson={filter}
             onSelect={setSelectedCommonAccount}
-            onAdd={() => setCommonModalOpen(true)}
+            onAdd={() => {setDraftAccount(selectedCommonAccount === "Tutti" ? commonAccounts[0] : selectedCommonAccount);setDraftAmount("");setDraftDirection("Spesa");setDraftDate(localDateKey());setCommonModalOpen(true);}}
             onAddAccount={() => setNewAccountOpen(true)}
             onAlign={() => setBalanceModalOpen(true)}
             balancesVisible={balancesVisible}
@@ -3450,21 +3454,22 @@ export default function Home() {
           <form onSubmit={addCommonTransaction}>
             <div className="segmented">
               <label>
-                <input type="radio" name="kind" value="Spesa" defaultChecked />{" "}
+                <input type="radio" name="kind" value="Spesa" checked={draftDirection==="Spesa"} onChange={()=>setDraftDirection("Spesa")} />{" "}
                 Uscita
               </label>
               <label>
-                <input type="radio" name="kind" value="Entrata" /> Entrata
+                <input type="radio" name="kind" value="Entrata" checked={draftDirection==="Entrata"} onChange={()=>setDraftDirection("Entrata")} /> Entrata
               </label>
             </div>
             <label>
               Conto
-              <select name="account" defaultValue={commonAccounts[0]}>
+              <select name="account" value={draftAccount} onChange={e=>setDraftAccount(e.target.value)}>
                 {commonAccounts.map((account) => (
                   <option key={account}>{account}</option>
                 ))}
               </select>
             </label>
+            <p>Saldo attuale · {draftAccount}: <strong>{euro.format(accountBalance(draftAccount,commonTransactions,balanceAdjustments))}</strong></p>
             <label>
               Descrizione
               <input
@@ -3494,7 +3499,7 @@ export default function Home() {
               <label>
                 Importo
                 <input
-                  name="amount"
+                  name="amount" value={draftAmount} onChange={e=>setDraftAmount(e.target.value)}
                   type="number"
                   min="0.01"
                   step="0.01"
@@ -3506,11 +3511,12 @@ export default function Home() {
                 <input
                   name="date"
                   type="date"
-                  defaultValue={new Date().toISOString().slice(0, 10)}
+                  value={draftDate} onChange={e=>setDraftDate(e.target.value)}
                   required
                 />
               </label>
             </div>
+            <p aria-live="polite">Saldo di oggi dopo il salvataggio: <strong>{draftDate && Number(draftAmount)>0 ? euro.format(accountBalance(draftAccount,[...commonTransactions,{account:draftAccount,date:draftDate,createdAt:new Date().toISOString().replace("T"," ").slice(0,19),direction:draftDirection,amount:Math.round(Number(draftAmount)*100)/100} as CommonTransaction],balanceAdjustments)) : "—"}</strong>{draftDate>localDateKey() && <small> · Movimento futuro: il saldo di oggi non cambia.</small>}</p>
             <button className="primary-btn full">Salva movimento</button>
           </form>
         </Modal>
