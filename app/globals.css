@@ -1849,3 +1849,13 @@ input[type="date"] { font-variant-numeric: tabular-nums; }
   color: var(--ink) !important;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coral) 46%, var(--line)), 0 3px 8px color-mix(in srgb, var(--ink) 10%, transparent) !important;
 }
+
+.utility-total-button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; border-radius: 14px; }
+.utility-total-button > div { height: 100%; }
+.utility-total-button:hover > div { border-color: var(--accent); }
+.utility-total-button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.utility-detail-list { display: grid; gap: 10px; }
+.utility-detail-row { display: flex; justify-content: space-between; align-items: start; gap: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--canvas); }
+.utility-detail-row > div { min-width: 0; overflow-wrap: anywhere; }
+.utility-detail-row small { display: block; margin-top: 5px; color: var(--muted); }
+.utility-detail-row > strong { white-space: nowrap; }

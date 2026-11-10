@@ -4928,6 +4928,7 @@ function UtilitiesView({
   onEdit: (bill: UtilityBill) => void;
   onDelete: (bill: UtilityBill) => void;
 }) {
+  const [detail, setDetail] = useState<string | null>(null);
   const currentYear = String(new Date().getFullYear());
   const availableYears = Array.from(new Set(bills.map((bill) => (bill.periodEnd || bill.date).slice(0, 4))))
     .filter(Boolean)
@@ -4964,29 +4965,19 @@ function UtilitiesView({
         </div>
       </div>
       <div className="utility-totals">
-        <div>
-          <span>Totale</span>
-          <strong>{euro.format(total)}</strong>
-        </div>
-        <div>
-          <span>Davide</span>
-          <strong>{euro.format(byWallet("Davide"))}</strong>
-        </div>
-        <div>
-          <span>Francesca</span>
-          <strong>{euro.format(byWallet("Francesca"))}</strong>
-        </div>
-        <div>
-          <span>Conti comuni</span>
-          <strong>
-            {euro.format(
-              byWallet("N26") +
-                byWallet("BBVA Dafragu") +
-                byWallet("BBVA Utenze"),
-            )}
-          </strong>
-        </div>
+        {["Totale", "Davide", "Francesca", "Conti comuni"].map((label) => {
+          const items = visibleBills.filter((bill) => label === "Totale" || (label === "Conti comuni" ? !["Davide", "Francesca"].includes(bill.wallet) : bill.wallet === label));
+          return <button type="button" className="utility-total-button" key={label} onClick={() => setDetail(label)} aria-label={`Mostra fatture ${label}`}><div><span>{label}</span><strong>{euro.format(items.reduce((sum, bill) => sum + bill.amount, 0))}</strong></div></button>;
+        })}
       </div>
+      {detail && <Modal title={`Fatture · ${detail}`} onClose={() => setDetail(null)}>
+        <p>{effectiveYear === "all" ? "Tutti gli anni" : effectiveYear}</p>
+        {(() => {
+          const items = visibleBills.filter((bill) => detail === "Totale" || (detail === "Conti comuni" ? !["Davide", "Francesca"].includes(bill.wallet) : bill.wallet === detail)).sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+          return <><p><strong>{items.length} fatture · {euro.format(items.reduce((sum, bill) => sum + bill.amount, 0))}</strong></p>
+            <div className="utility-detail-list">{items.length ? items.map((bill) => <article key={bill.id} className="utility-detail-row"><div><strong>{bill.provider} · {bill.service}</strong><small>{shortDate.format(new Date(bill.date + "T12:00:00"))} · {bill.wallet}</small>{bill.periodStart && bill.periodEnd && <small>Periodo: {shortDate.format(new Date(bill.periodStart + "T12:00:00"))} – {shortDate.format(new Date(bill.periodEnd + "T12:00:00"))}</small>}{bill.dueDate && <small>Scadenza: {shortDate.format(new Date(bill.dueDate + "T12:00:00"))}</small>}</div><strong>{euro.format(bill.amount)}</strong></article>) : <p>Nessuna fattura per questo filtro.</p>}</div></>;
+        })()}
+      </Modal>}
       <div className="energy-utility-grid">
         <EnergyUtilityCard kind="Luce" bills={visibleBills} onEdit={onEdit} />
         <EnergyUtilityCard kind="Gas" bills={visibleBills} onEdit={onEdit} />
