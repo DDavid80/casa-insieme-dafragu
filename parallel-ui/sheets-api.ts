@@ -1,14 +1,8 @@
 import { loadDatabase, exportDatabase } from './browser-db';
 import { routes } from './original-routes';
-const ENDPOINT='https://script.google.com/macros/s/AKfycbzDdamH7lUicUX2RzqqlHtKtSUxf9TNSdHjNNtnCGvFjPBkQVS07L3qf_qqrnHjhhGQ7A/exec';
-const TOKEN_KEY='dafragu-sheets-session';
-const nativeFetch=window.fetch.bind(window);
+import { ENDPOINT,TOKEN_KEY,nativeFetch,remote } from './security-transport';
 const json=(d:unknown,status=200)=>new Response(JSON.stringify(d),{status,headers:{'Content-Type':'application/json'}});
 let loaded=false,rawData:Record<string,any[]>={},queue=Promise.resolve();
-async function remote(request:Record<string,any>){
- const r=await nativeFetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...request,token:localStorage.getItem(TOKEN_KEY)||''})});
- const d=await r.json();if(!d.ok)throw new Error(d.error||'Archivio Google non disponibile');return d;
-}
 async function reload(){const b=await remote({action:'backup:get'});if(!b.data||typeof b.data!=='object')throw new Error('Backup Google non valido');rawData=b.data;loaded=true;}
 async function prepareWrite(){await reload();await loadDatabase(rawData);}
 async function persist(before:Record<string,any[]>,after:Record<string,any[]>){
@@ -66,11 +60,14 @@ async function handle(input:RequestInfo|URL,init?:RequestInit){
   const state=await nativeFetch(ENDPOINT).then(r=>r.json());
   if(method==='GET'){
    let unlocked=false;if(localStorage.getItem(TOKEN_KEY)){try{await reload();unlocked=true;}catch{localStorage.removeItem(TOKEN_KEY);}}
-   return json({configured:!!state.configured,unlocked,recoveryConfigured:false});
+   return json({configured:!!state.configured,unlocked,recoveryConfigured:!!state.recoveryConfigured});
   }
   const body=JSON.parse(String(init?.body||'{}'));
-  if(body.mode&& !['unlock','setup'].includes(body.mode))return json({error:'Password e recupero devono essere configurati separatamente nel nuovo archivio.'},501);
-  const d=await remote({action:state.configured?'unlock':'setup',password:body.password});
+  const action=method==='PATCH'?(body.mode==='recovery'?'security:recovery':'security:password'):body.mode;
+  if(!['unlock','setup','recover','security:password','security:recovery'].includes(action))return json({error:'Operazione non riconosciuta'},400);
+  if(!['unlock','setup'].includes(action)&&!state.securityVersion)return json({error:'Il servizio Google deve essere aggiornato prima di usare questa funzione.'},503);
+  const d=await remote({action,password:body.password,currentPassword:body.currentPassword,newPassword:action==='recover'?body.password:body.newPassword,recoveryCode:body.recoveryCode});
+  if(!d.token)return json(d);
   localStorage.setItem(TOKEN_KEY,d.token);loaded=false;return json({unlocked:true});
  }
  if(!localStorage.getItem(TOKEN_KEY))return json({error:'Accesso richiesto'},401);

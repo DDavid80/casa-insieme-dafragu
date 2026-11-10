@@ -30,7 +30,8 @@ function doPost(e) {
 
 function dispatch_(request) {
   const action = String(request.action || 'status');
-  if (action === 'status') return { ok: true, configured: Boolean(props_().getProperty('password_hash')), format: FORMAT, version: VERSION };
+  if (action === 'status') return { ok: true, configured: Boolean(props_().getProperty('password_hash')), recoveryConfigured: Boolean(props_().getProperty("recovery_hash")), securityVersion: 1, format: FORMAT, version: VERSION };
+  if (['recover','security:password','security:recovery','security:verify'].includes(action)) return securityAction_(action, request);
   if (action === 'setup') return setup_(request);
   if (action === 'unlock') return unlock_(request);
   if (!validSession_(request.token)) return { ok: false, status: 401, error: 'Accesso richiesto' };
@@ -129,3 +130,37 @@ function createSession_() { const token = Utilities.getUuid() + Utilities.getUui
 function validSession_(token) { const expires = Number(props_().getProperty(`session:${String(token || '')}`) || 0); return expires > Date.now(); }
 function audit_(action, collection, id, details) { getSheet_(SHEETS.log).appendRow([new Date().toISOString(), action, collection, id, '', details]); }
 function respond_(payload) { return ContentService.createTextOutput(JSON.stringify(payload)).setMimeType(ContentService.MimeType.JSON); }
+
+function securityAction_(action, r) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    const p = props_(), fail = (status,error) => ({ok:false,status,error});
+    if (action !== 'recover' && !validSession_(r.token)) return fail(401,'Accesso richiesto');
+    const code = String(r.recoveryCode || '');
+    if (action === 'security:recovery') {
+      if (code.length < 6 || code.length > 100) return fail(400,'Usa da 6 a 100 caratteri per il codice');
+      const salt = Utilities.getUuid();
+      p.setProperties({recovery_salt:salt,recovery_hash:hash_(code,salt),recovery_attempts:'0'});
+      return {ok:true,recoveryConfigured:true};
+    }
+    if (action !== 'security:password') {
+      if (!p.getProperty('recovery_hash')) return fail(409,'Configura prima il codice di recupero su questa dashboard');
+      const now = Date.now(), start = Number(p.getProperty('recovery_window') || 0);
+      const attempts = now-start < 900000 ? Number(p.getProperty('recovery_attempts') || 0) : 0;
+      if (attempts >= 8) return fail(429,'Troppi tentativi. Riprova tra 15 minuti');
+      if (hash_(code,p.getProperty('recovery_salt')) !== p.getProperty('recovery_hash')) {
+        p.setProperties({recovery_window:String(attempts ? start : now), recovery_attempts:String(attempts+1)});
+        return fail(401,'Codice di recupero errato');
+      }
+      p.setProperty('recovery_attempts','0');
+      if (action === 'security:verify') return {ok:true,verified:true};
+    } else if (hash_(String(r.currentPassword || ''),p.getProperty('password_salt')) !== p.getProperty('password_hash')) return fail(401,'Password attuale errata');
+    const password = String(r.newPassword || '');
+    if (password.length < 8 || password.length > 100) return fail(400,'Usa da 8 a 100 caratteri per la nuova password');
+    const salt = Utilities.getUuid();
+    p.setProperties({password_salt:salt,password_hash:hash_(password,salt)});
+    p.getKeys().filter(k=>k.startsWith('session:')).forEach(k=>p.deleteProperty(k));
+    return {ok:true,changed:true,unlocked:true,token:createSession_()};
+  } finally { lock.releaseLock(); }
+}
