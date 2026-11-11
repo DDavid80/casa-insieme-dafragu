@@ -654,8 +654,14 @@ export default function Home() {
     [visibleMovements],
   );
   const reportableVisibleMovements = useMemo(
-    () => accountedVisibleMovements.filter(isEconomicMovement),
-    [accountedVisibleMovements],
+    () => accountedVisibleMovements.filter(isEconomicMovement).flatMap((m): Movement[] => {
+      const personalDeposit = m.date >= "2026-11-01" && m.kind === "Entrata" && m.commonAccount &&
+        (m.person === "Davide" || m.person === "Francesca") &&
+        (/^(fondo|versamento|bonifico personale)\b/i.test(m.description.trim()) || m.category === "Versamento personale");
+      if (!personalDeposit) return [m];
+      return filter === "Tutti" ? [] : [{...m, kind:"Spesa"}];
+    }),
+    [accountedVisibleMovements, filter],
   );
   const accountedPlanPayments = useMemo(
     () => dashboardPlanPayments.filter((payment) => payment.date <= localDateKey()),
@@ -2507,6 +2513,7 @@ export default function Home() {
                     <option>Utenze</option>
                     <option>Trasporti</option>
                     <option>Tempo libero</option>
+                    <option>Versamento personale</option>
                     <option>Viaggi</option>
                     <option>Salute</option>
                     <option>Ticket Satispay</option>
