@@ -319,12 +319,8 @@ export default function Home() {
   >("checking");
   const [securityError, setSecurityError] = useState("");
   const [passwordMessage, setPasswordMessage] = useState("");
-  const [commonAccounts, setCommonAccounts] = useState<CommonAccount[]>([
-    "N26",
-    "BBVA Dafragu",
-    "BBVA Utenze",
-    "Ticket Satispay",
-  ]);
+  const [commonAccounts, setCommonAccounts] = useState<CommonAccount[]>([]);
+  const [accountsReady, setAccountsReady] = useState(false);
   const [editingMovement, setEditingMovement] = useState<Movement | null>(null);
   const [paymentDraft, setPaymentDraft] = useState({person:"Comune",kind:"Spesa",account:"",amount:0,ticket:0,category:"Supermercato"});
   useEffect(() => {
@@ -485,32 +481,23 @@ export default function Home() {
           ? (response.json() as Promise<{ notes: Note[] }>)
           : { notes: [] },
       ),
-      fetch("/api/settings").then(async (response) =>
-        response.ok
-          ? (response.json() as Promise<{
-              title: string;
-              commonAccounts: string[];
-            }>)
-          : {
-              title: "Casa Insieme",
-              commonAccounts: [
-                "N26",
-                "BBVA Dafragu",
-                "BBVA Utenze",
-                "Ticket Satispay",
-              ],
-            },
-      ),
+      fetch("/api/settings", {cache:"no-store"}).then(async (response) => {
+        if (!response.ok) throw new Error("Configurazione conti non disponibile");
+        return response.json() as Promise<{title:string;commonAccounts:string[]}>;
+      }),
       fetch("/api/utilities").then(async (response) =>
         response.ok
           ? (response.json() as Promise<{ bills: UtilityBill[] }>)
           : { bills: [] },
       ),
-      fetch("/api/common-accounts").then(async (response) =>
-        response.ok
-          ? (response.json() as Promise<{ transactions: CommonTransaction[] }>)
-          : { transactions: [] },
-      ),
+      fetch("/api/common-accounts", {cache:"no-store"}).then(async (response) => {
+        if (!response.ok) throw new Error("Movimenti conti non disponibili");
+        return response.json() as Promise<{transactions:CommonTransaction[]}>;
+      }),
+      fetch("/api/balance-adjustments", {cache:"no-store"}).then(async (response) => {
+        if (!response.ok) throw new Error("Saldi conti non disponibili");
+        return response.json() as Promise<{adjustments:BalanceAdjustment[]}>;
+      }),
       fetch("/api/planning").then(async (response) =>
         response.ok
           ? (response.json() as Promise<{
@@ -542,6 +529,7 @@ export default function Home() {
           settingData,
           utilityData,
           commonData,
+          balanceData,
           planningData,
           chatData,
           financeData,
@@ -558,6 +546,8 @@ export default function Home() {
           setCommonAccounts(settingData.commonAccounts);
           setUtilityBills(utilityData.bills);
           setCommonTransactions(commonData.transactions);
+          setBalanceAdjustments(balanceData.adjustments);
+          setAccountsReady(true);
           setBudgets(planningData.budgets);
           setGoals(planningData.goals);
           setContributions(planningData.contributions);
@@ -585,20 +575,11 @@ export default function Home() {
         },
       )
       .catch(() => {
-        if (active) setSyncState("demo");
+        if (active) setSyncState("error");
       });
     return () => {
       active = false;
     };
-  }, [securityState]);
-
-  useEffect(() => {
-    if (securityState !== "unlocked") return;
-    void fetch("/api/balance-adjustments")
-      .then((r) => (r.ok ? r.json() : { adjustments: [] }))
-      .then((data: { adjustments?: BalanceAdjustment[] }) =>
-        setBalanceAdjustments(data.adjustments ?? []),
-      );
   }, [securityState]);
 
   useEffect(() => {
@@ -935,7 +916,7 @@ export default function Home() {
       const settingResponse = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title, commonAccounts: renamedAccounts }),
+        body: JSON.stringify({ title, commonAccounts: renamedAccounts, expectedAccounts: commonAccounts }),
       });
       if (!settingResponse.ok) throw new Error("Nome non salvato");
       if (photo instanceof File && photo.size) {
@@ -947,8 +928,18 @@ export default function Home() {
         if (!photoResponse.ok) throw new Error("Foto non salvata");
         setPhotoUrl(`/api/photo?v=${Date.now()}`);
       }
-      setAppTitle(title);
-      setCommonAccounts(renamedAccounts);
+      const saved = await settingResponse.json() as {title:string;commonAccounts:string[]};
+      const read = async (url:string) => {const r=await fetch(url,{cache:"no-store"});if(!r.ok)throw new Error("Ricaricamento dati non riuscito");return r.json();};
+      const [movementData, commonData, balanceData, utilityData] = await Promise.all([read("/api/movements"),read("/api/common-accounts"),read("/api/balance-adjustments"),read("/api/utilities")]);
+      const selectedIndex = commonAccounts.indexOf(selectedCommonAccount);
+      setMovements(movementData.movements);
+      setCommonTransactions(commonData.transactions);
+      setBalanceAdjustments(balanceData.adjustments);
+      setUtilityBills(utilityData.bills);
+      setAppTitle(saved.title);
+      setCommonAccounts(saved.commonAccounts);
+      if (selectedIndex >= 0) setSelectedCommonAccount(saved.commonAccounts[selectedIndex]);
+      setAccountsReady(true);
       setSettingsOpen(false);
       setSyncState("online");
     } catch {
@@ -2019,7 +2010,7 @@ export default function Home() {
               {syncState === "loading" && "Collegamento ai dati…"}
               {syncState === "saving" && "Salvataggio…"}
               {syncState === "demo" && "Modalità dimostrativa"}
-              {syncState === "error" && "Salvato solo su questo dispositivo"}
+              {syncState === "error" && "Errore di sincronizzazione: aggiorna per verificare i dati"}
             </div>
           </div>
           <div className="top-actions">
@@ -2299,7 +2290,7 @@ export default function Home() {
           </section>
         )}
 
-        {view === "comune" && (
+        {view === "comune" && (!accountsReady ? <section className="panel page-panel" role="status"><h2>Conti comuni</h2><p>{syncState === "error" ? "Caricamento dei conti non riuscito. Riprova con Aggiorna." : "Caricamento di nomi, ordine e saldi…"}</p></section> : (
           <CommonAccountsView
             accounts={commonAccounts}
             transactions={commonTransactions}
@@ -2317,7 +2308,7 @@ export default function Home() {
             onDeleteAccount={deleteCommonAccount}
             onReorder={reorderAccounts}
           />
-        )}
+        ))}
         {view === "utenze" && (
           <UtilitiesView
             bills={visibleUtilityBills}

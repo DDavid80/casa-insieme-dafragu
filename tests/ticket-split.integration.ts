@@ -23,3 +23,9 @@ res=await settingsPatch(request({mode:'reorder',title:'Casa',commonAccounts:['RE
 res=await POST(request({...base,commonAccount:''}));assert.equal(res.status,400);
 res=await POST(request({...base,commonAccount:'Ticket Satispay'}));assert.equal(res.status,400);
 console.log('PASS: persistent reordering preserves all financial records; missing/mixed accounts rejected');
+// Renaming includes opening balances and survives swapped names without merging accounts.
+await loadDatabase({settings:[{id:1,title:'Casa',commonAccounts:JSON.stringify(['N26','REVOLUT'])}],balanceAdjustments:[{id:1,account:'N26',deltaCents:0,resultingBalanceCents:10000,date:'2026-11-01',note:'Base',author:'Davide'}],commonAccountTransactions:[{id:1,account:'N26',direction:'Spesa',description:'Test',category:'Altro',amountCents:1000,date:'2026-11-14'},{id:2,account:'REVOLUT',direction:'Entrata',description:'Test2',category:'Altro',amountCents:5000,date:'2026-11-14'}]});
+res=await settingsPatch(request({title:'Casa',expectedAccounts:['N26','REVOLUT'],commonAccounts:['Viaggi','REVOLUT']}));assert.equal(res.status,200);d=await exportDatabase();assert.equal(d.balanceAdjustments[0].account,'Viaggi');assert.equal(d.balanceAdjustments[0].resultingBalanceCents,10000);assert.equal(d.commonAccountTransactions[0].account,'Viaggi');
+res=await settingsPatch(request({title:'Casa',expectedAccounts:['N26','REVOLUT'],commonAccounts:['Wrong','REVOLUT']}));assert.equal(res.status,409);
+res=await settingsPatch(request({title:'Casa',expectedAccounts:['Viaggi','REVOLUT'],commonAccounts:['REVOLUT','Viaggi']}));assert.equal(res.status,200);d=await exportDatabase();assert.equal(d.commonAccountTransactions[0].account,'REVOLUT');assert.equal(d.commonAccountTransactions[1].account,'Viaggi');assert.equal(d.balanceAdjustments[0].account,'REVOLUT');
+console.log('PASS: rename preserves balance references, simultaneous swaps and stale settings guard');

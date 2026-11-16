@@ -1,6 +1,6 @@
 import { getDb } from "../../../db";
-import { commonAccountTransactions, movements, settings, utilityBills } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { balanceAdjustments, commonAccountTransactions, debts, movements, scheduledMovements, settings, tripExpenses, utilityBills } from "../../../db/schema";
+import { eq, sql } from "drizzle-orm";
 import { requireAppAccess } from "../../../lib/app-security";
 
 export async function GET(request: Request) {
@@ -23,7 +23,7 @@ export async function PATCH(request: Request) {
   try {
     const denied = await requireAppAccess(request);
     if (denied) return denied;
-    const payload = (await request.json()) as { title?: string; commonAccounts?: string[]; mode?: "reorder" };
+    const payload = (await request.json()) as { title?: string; commonAccounts?: string[]; mode?: "reorder"; expectedAccounts?: string[] };
     const title = payload.title?.trim() ?? "";
     if (!title || title.length > 40) {
       return Response.json({ error: "Il nome deve contenere da 1 a 40 caratteri" }, { status: 400 });
@@ -37,8 +37,21 @@ export async function PATCH(request: Request) {
       await db.update(settings).set({commonAccounts:JSON.stringify(commonAccounts),updatedAt:new Date().toISOString()}).where(eq(settings.id,oldRows[0].id));
       return Response.json({title:oldRows[0].title,commonAccounts});
     }
-    if (commonAccounts) for (let index = 0; index < Math.min(oldAccounts.length, commonAccounts.length); index += 1) { if (oldAccounts[index] !== commonAccounts[index]) { await db.update(movements).set({ commonAccount: commonAccounts[index] }).where(eq(movements.commonAccount, oldAccounts[index])); await db.update(commonAccountTransactions).set({ account: commonAccounts[index] }).where(eq(commonAccountTransactions.account, oldAccounts[index])); await db.update(utilityBills).set({ wallet: commonAccounts[index], commonAccount: commonAccounts[index] }).where(eq(utilityBills.wallet, oldAccounts[index])); } }
-    await db.insert(settings).values({ id: 1, title, commonAccounts: JSON.stringify(commonAccounts ?? oldAccounts) }).onConflictDoUpdate({ target: settings.id, set: { title, commonAccounts: JSON.stringify(commonAccounts ?? oldAccounts), updatedAt: new Date().toISOString() } });
+    if (payload.expectedAccounts && JSON.stringify(payload.expectedAccounts) !== JSON.stringify(oldAccounts)) return Response.json({error:"I conti sono stati aggiornati da un altro dispositivo. Ricarica prima di rinominare."},{status:409});
+    const renames = commonAccounts ? oldAccounts.flatMap((name,index) => index < commonAccounts.length && name !== commonAccounts[index] ? [[name,commonAccounts[index]]] : []) : [];
+    const renameColumn = (column:any) => sql`CASE ${column} ${sql.join(renames.map(([from,to])=>sql`WHEN ${from} THEN ${to}`),sql` `)} ELSE ${column} END`;
+    const writes:any[] = [];
+    if (renames.length) {
+      writes.push(db.update(movements).set({commonAccount:renameColumn(movements.commonAccount)}));
+      writes.push(db.update(commonAccountTransactions).set({account:renameColumn(commonAccountTransactions.account)}));
+      writes.push(db.update(balanceAdjustments).set({account:renameColumn(balanceAdjustments.account)}));
+      writes.push(db.update(scheduledMovements).set({commonAccount:renameColumn(scheduledMovements.commonAccount)}));
+      writes.push(db.update(debts).set({commonAccount:renameColumn(debts.commonAccount)}));
+      writes.push(db.update(tripExpenses).set({commonAccount:renameColumn(tripExpenses.commonAccount)}));
+      writes.push(db.update(utilityBills).set({wallet:renameColumn(utilityBills.wallet),commonAccount:renameColumn(utilityBills.commonAccount)}));
+    }
+    writes.push(db.insert(settings).values({id:1,title,commonAccounts:JSON.stringify(commonAccounts ?? oldAccounts)}).onConflictDoUpdate({target:settings.id,set:{title,commonAccounts:JSON.stringify(commonAccounts ?? oldAccounts),updatedAt:new Date().toISOString()}}));
+    await db.batch(writes as any);
     return Response.json({ title, commonAccounts: commonAccounts ?? oldAccounts });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Errore inatteso";
