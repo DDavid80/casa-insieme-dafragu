@@ -49,6 +49,7 @@ async function addMovementEffects(
   db: Awaited<ReturnType<typeof getDb>>,
   row: typeof movements.$inferSelect,
 ) {
+  const ticketAmountCents = row.kind === "Spesa" && row.ticketAmountCents <= 0 && (/ticket/i.test(row.category) || row.commonAccount === "Ticket Satispay") ? row.amountCents : row.ticketAmountCents;
   if (
     row.commonAccount &&
     row.commonAccount !== "Ticket Satispay" &&
@@ -71,7 +72,7 @@ async function addMovementEffects(
       direction: row.kind,
       description: row.description,
       category: row.category,
-      amountCents: row.amountCents,
+      amountCents: row.kind === "Spesa" ? Math.max(0, row.amountCents - ticketAmountCents) : row.amountCents,
       date: row.date,
       sourceMovementId: row.id,
     });
@@ -87,7 +88,6 @@ async function addMovementEffects(
       date: row.date,
       sourceMovementId: row.id,
     });
-  const ticketAmountCents = row.kind === "Spesa" && row.ticketAmountCents <= 0 && (/ticket/i.test(row.category) || row.commonAccount === "Ticket Satispay") ? row.amountCents : row.ticketAmountCents;
   if (row.commonAccount === "Ticket Satispay")
     await db.insert(commonAccountTransactions).values({
       account: "Ticket Satispay",

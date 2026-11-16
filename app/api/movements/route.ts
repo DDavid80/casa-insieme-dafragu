@@ -83,6 +83,8 @@ export async function POST(request: Request) {
     }
 
     const ticketAmount = ticketShare(payload.kind, category, payload.commonAccount, enteredTicketAmount, amount);
+    if (payload.person === "Comune" && !payload.commonAccount?.trim()) return Response.json({error:"Seleziona il conto comune da utilizzare"},{status:400});
+    if (payload.commonAccount === "Ticket Satispay" && payload.kind === "Spesa" && ticketAmount !== amount) return Response.json({error:"Per un pagamento misto seleziona il conto che paga la differenza"},{status:400});
     const personalAmount = payload.kind === "Spesa" && (payload.person === "Davide" || payload.person === "Francesca") ? amount - ticketAmount : amount;
 
     const db = await getDb();
@@ -120,7 +122,7 @@ export async function POST(request: Request) {
         direction: payload.kind,
         description,
         category,
-        amountCents: Math.round(amount * 100),
+        amountCents: Math.round((payload.kind === "Spesa" ? amount - ticketAmount : amount) * 100),
         date: payload.date,
         sourceMovementId: row.id,
       });
@@ -191,6 +193,8 @@ export async function PATCH(request: Request) {
     const id = Number(payload.id); const description = payload.description?.trim() ?? ""; const category = payload.category?.trim() ?? ""; const amount = Number(payload.amount); const enteredTicketAmount = Number(payload.ticketAmount ?? 0);
     if (!Number.isInteger(id) || id <= 0 || !payload.kind || !payload.person || !payload.date || !description || !category || !Number.isFinite(amount) || amount <= 0 || !Number.isFinite(enteredTicketAmount) || enteredTicketAmount < 0 || enteredTicketAmount > amount) return Response.json({ error: "Dati del movimento non validi" }, { status: 400 });
     const ticketAmount = ticketShare(payload.kind, category, payload.commonAccount, enteredTicketAmount, amount);
+    if (payload.person === "Comune" && !payload.commonAccount?.trim()) return Response.json({error:"Seleziona il conto comune da utilizzare"},{status:400});
+    if (payload.commonAccount === "Ticket Satispay" && payload.kind === "Spesa" && ticketAmount !== amount) return Response.json({error:"Per un pagamento misto seleziona il conto che paga la differenza"},{status:400});
     const personalAmount = payload.kind === "Spesa" && (payload.person === "Davide" || payload.person === "Francesca") ? amount - ticketAmount : amount;
     const db = await getDb();
     await db.delete(commonAccountTransactions).where(eq(commonAccountTransactions.sourceMovementId, id));
@@ -200,7 +204,7 @@ export async function PATCH(request: Request) {
     const scheduledPrepaidExpense = isScheduledPrepaidExpense(row);
     if (payload.commonAccount && payload.commonAccount !== "Ticket Satispay" && (payload.person === "Davide" || payload.person === "Francesca") && payload.kind === "Spesa" && !scheduledPrepaidExpense) await db.insert(commonAccountTransactions).values({ account: payload.commonAccount, direction: "Entrata", description: `Versamento da ${payload.person}`, category: "Versamento", amountCents: Math.round(personalAmount * 100), date: payload.date, sourceMovementId: row.id });
     if (scheduledPrepaidExpense) await db.insert(commonAccountTransactions).values({ account: payload.commonAccount!, direction: "Spesa", description, category, amountCents: Math.round(personalAmount * 100), date: payload.date, sourceMovementId: row.id });
-    if (payload.commonAccount && payload.commonAccount !== "Ticket Satispay" && payload.person === "Comune") await db.insert(commonAccountTransactions).values({ account: payload.commonAccount, direction: payload.kind, description, category, amountCents: Math.round(amount * 100), date: payload.date, sourceMovementId: row.id });
+    if (payload.commonAccount && payload.commonAccount !== "Ticket Satispay" && payload.person === "Comune") await db.insert(commonAccountTransactions).values({ account: payload.commonAccount, direction: payload.kind, description, category, amountCents: Math.round((payload.kind === "Spesa" ? amount - ticketAmount : amount) * 100), date: payload.date, sourceMovementId: row.id });
     if (payload.commonAccount === "Ticket Satispay") await db.insert(commonAccountTransactions).values({ account: "Ticket Satispay", direction: payload.kind, description: payload.kind === "Spesa" ? `Ticket · ${description}` : description, category, amountCents: Math.round((payload.kind === "Spesa" ? ticketAmount : amount) * 100), date: payload.date, sourceMovementId: row.id });
     if (payload.kind === "Spesa" && ticketAmount > 0 && payload.commonAccount !== "Ticket Satispay") await db.insert(commonAccountTransactions).values({ account: "Ticket Satispay", direction: "Spesa", description: `Ticket · ${description}`, category, amountCents: Math.round(ticketAmount * 100), date: payload.date, sourceMovementId: row.id });
     if (payload.kind === "Spesa" && payload.goalId) await db.insert(goalContributions).values({ goalId: payload.goalId, source: `${payload.person} · ${description}`, amountCents: Math.round(amount * 100), date: payload.date, sourceMovementId: row.id });

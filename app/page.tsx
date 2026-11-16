@@ -326,6 +326,24 @@ export default function Home() {
     "Ticket Satispay",
   ]);
   const [editingMovement, setEditingMovement] = useState<Movement | null>(null);
+  const [paymentDraft, setPaymentDraft] = useState({person:"Comune",kind:"Spesa",account:"",amount:0,ticket:0,category:"Supermercato"});
+  useEffect(() => {
+    const m = editingMovement;
+    setPaymentDraft(m ? {person:m.person,kind:m.kind,account:m.commonAccount ?? "",amount:m.amount + (m.person !== "Comune" && m.kind === "Spesa" ? m.ticketAmount ?? 0 : 0),ticket:m.ticketAmount ?? 0,category:m.category} : {person:"Comune",kind:"Spesa",account:"",amount:0,ticket:0,category:"Supermercato"});
+  }, [modalOpen, editingMovement]);
+  function updatePaymentDraft(form: HTMLFormElement) {
+    const d = new FormData(form);
+    setPaymentDraft({person:String(d.get("person")),kind:String(d.get("kind")),account:String(d.get("commonAccount") ?? ""),amount:Number(d.get("amount") || 0),ticket:Number(d.get("ticketAmount") || 0),category:String(d.get("category"))});
+  }
+  async function reorderAccounts(accounts: CommonAccount[]) {
+    try {
+      const response = await fetch("/api/settings", {method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({mode:"reorder",title:appTitle,commonAccounts:accounts})});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Ordine non salvato");
+      setCommonAccounts(result.commonAccounts);
+      return true;
+    } catch { return false; }
+  }
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatAuthor, setChatAuthor] = useState<"Davide" | "Francesca">(
@@ -2297,6 +2315,7 @@ export default function Home() {
             onEdit={setEditingCommon}
             onDelete={deleteCommonTransaction}
             onDeleteAccount={deleteCommonAccount}
+            onReorder={reorderAccounts}
           />
         )}
         {view === "utenze" && (
@@ -2459,7 +2478,7 @@ export default function Home() {
             </button>
             <p className="panel-kicker">Nuova registrazione</p>
             <h2 id="movement-title">Aggiungi movimento</h2>
-            <form className="movement-form" onSubmit={addMovement}>
+            <form className="movement-form" onSubmit={addMovement} onChange={(event) => updatePaymentDraft(event.currentTarget)}>
               <div className="segmented">
                 <label>
                   <input
@@ -2535,9 +2554,9 @@ export default function Home() {
                   <input name="customCategory" placeholder="Es. Animali" />
                 </label>
                 <label>
-                  Versamento / conto comune (facoltativo)
-                  <select name="commonAccount" defaultValue="">
-                    <option value="">Nessuno</option>
+                  {paymentDraft.person === "Comune" ? "Conto comune da utilizzare (obbligatorio)" : "Versamento / conto comune (facoltativo)"}
+                  <select name="commonAccount" defaultValue="" required={paymentDraft.person === "Comune"}>
+                    <option value="">{paymentDraft.person === "Comune" ? "Seleziona un conto" : "Nessuno"}</option>
                     {commonAccounts.map((account) => (
                       <option key={account}>{account}</option>
                     ))}
@@ -2548,12 +2567,15 @@ export default function Home() {
                 Quota pagata con Ticket Satispay (facoltativa)
                 <input
                   name="ticketAmount"
+                  max={paymentDraft.amount || undefined}
+                  disabled={paymentDraft.kind !== "Spesa"}
                   type="number"
                   min="0"
                   step="0.01"
                   placeholder="Es. 27,00 su una spesa da 30,00"
                 />
               </label>
+              <PaymentBreakdown draft={paymentDraft} />
               <label className="movement-goal">
                 Collega a un obiettivo
                 <select name="goalId" defaultValue="">
@@ -2659,7 +2681,7 @@ export default function Home() {
           title="Modifica movimento"
           onClose={() => setEditingMovement(null)}
         >
-          <form onSubmit={updateMovement}>
+          <form onSubmit={updateMovement} onChange={(event) => updatePaymentDraft(event.currentTarget)}>
             <div className="segmented">
               <label>
                 <input
@@ -2696,7 +2718,7 @@ export default function Home() {
                   type="number"
                   min="0.01"
                   step="0.01"
-                  defaultValue={editingMovement.amount}
+                  defaultValue={editingMovement.amount + (editingMovement.person !== "Comune" && editingMovement.kind === "Spesa" ? editingMovement.ticketAmount ?? 0 : 0)}
                   required
                 />
               </label>
@@ -2753,12 +2775,13 @@ export default function Home() {
               />
             </label>
             <label>
-              Conto comune
+              {paymentDraft.person === "Comune" ? "Conto comune da utilizzare (obbligatorio)" : "Versamento / conto comune (facoltativo)"}
               <select
+                required={paymentDraft.person === "Comune"}
                 name="commonAccount"
                 defaultValue={editingMovement.commonAccount ?? ""}
               >
-                <option value="">Nessuno</option>
+                <option value="">{paymentDraft.person === "Comune" ? "Seleziona un conto" : "Nessuno"}</option>
                 {commonAccounts.map((account) => (
                   <option key={account}>{account}</option>
                 ))}
@@ -2768,12 +2791,15 @@ export default function Home() {
               Quota Ticket
               <input
                 name="ticketAmount"
+                  max={paymentDraft.amount || undefined}
+                  disabled={paymentDraft.kind !== "Spesa"}
                 type="number"
                 min="0"
                 step="0.01"
                 defaultValue={editingMovement.ticketAmount ?? 0}
               />
             </label>
+            <PaymentBreakdown draft={paymentDraft} />
             <label>
               Collega a un obiettivo
               <select name="goalId" defaultValue={editingMovement.goalId ?? ""}>
@@ -4259,6 +4285,7 @@ function CommonAccountsView({
   onEdit,
   onDelete,
   onDeleteAccount,
+  onReorder,
 }: {
   accounts: CommonAccount[];
   transactions: CommonTransaction[];
@@ -4274,7 +4301,21 @@ function CommonAccountsView({
   onEdit: (item: CommonTransaction) => void;
   onDelete: (item: CommonTransaction) => void;
   onDeleteAccount: (account: CommonAccount) => void;
+  onReorder: (accounts: CommonAccount[]) => Promise<boolean>;
 }) {
+  const [reordering, setReordering] = useState(false);
+  const [draggedAccount, setDraggedAccount] = useState<CommonAccount | null>(null);
+  const [orderBusy, setOrderBusy] = useState(false);
+  const [orderMessage, setOrderMessage] = useState("");
+  async function moveAccount(from: CommonAccount, target: number) {
+    const current = accounts.indexOf(from);
+    if (orderBusy || current < 0 || target < 0 || target >= accounts.length || current === target) return;
+    const next = [...accounts]; next.splice(current,1); next.splice(target,0,from);
+    setOrderBusy(true);setOrderMessage("Salvataggio ordine…");
+    const ok = await onReorder(next);
+    setOrderBusy(false);setDraggedAccount(null);
+    setOrderMessage(ok ? "Ordine salvato nell’archivio condiviso" : "Ordine non salvato. Riprova.");
+  }
   const [accountMonth, setAccountMonth] = useState("all");
   useEffect(() => setAccountMonth("all"), [selectedAccount]);
   const accountedTransactions = transactions.filter(
@@ -4341,6 +4382,7 @@ function CommonAccountsView({
             <button className="secondary-btn privacy-toggle" onClick={onToggleBalances} aria-pressed={balancesVisible}>
               {balancesVisible ? "◉ Nascondi saldi" : "◌ Mostra saldi"}
             </button>
+            <button className="secondary-btn" aria-pressed={reordering} onClick={() => setReordering(!reordering)}>{reordering ? "Fine riordino" : "↕ Riordina conti"}</button>
             <button className="secondary-btn" onClick={onAlign}>
               ⚖ Allinea saldo
             </button>
@@ -4353,14 +4395,22 @@ function CommonAccountsView({
           </div>
         </div>
         <div className="closed-account-strip">{accounts.map((account) => <div key={account}><small>{account}</small><b className={balancesVisible ? (accountBalance(account, transactions, adjustments) >= 0 ? "positive-text" : "negative-text") : "balance-masked"}>{balancesVisible ? euro.format(accountBalance(account, transactions, adjustments)) : "••••••"}</b></div>)}</div>
+        {reordering && <p className="form-note">Trascina un riquadro oppure usa le frecce per spostarlo. L’ordine viene salvato per tutti i dispositivi.</p>}
+        <p role="status" aria-live="polite">{orderMessage}</p>
         <div className="account-grid">
-          {accounts.map((account) => {
+          {accounts.map((account, index) => {
             const balance = accountBalance(account, transactions, adjustments);
             return (
+              <div key={account} className="account-sort-item" style={{display:"flex",flexDirection:"column",minWidth:0}} draggable={reordering && !orderBusy}
+                onDragStart={(event) => {setDraggedAccount(account);event.dataTransfer.effectAllowed="move";event.dataTransfer.setData("text/plain",account);}}
+                onDragEnd={() => setDraggedAccount(null)}
+                onDragOver={(event) => {if(reordering)event.preventDefault();}}
+                onDrop={(event) => {event.preventDefault();if(reordering && draggedAccount)void moveAccount(draggedAccount,index);}}>
               <button
+                style={{width:"100%",flex:1,cursor:reordering ? "grab" : "pointer"}}
                 className={`account-card ${balance >= 0 ? "positive" : "negative"} ${selectedAccount === account ? "selected" : ""}`}
                 key={account}
-                onClick={() => onSelect(account)}
+                onClick={() => {if(!reordering)onSelect(account);}}
               >
                 <img
                   src={`/api/account-logo?account=${encodeURIComponent(account)}`}
@@ -4384,6 +4434,11 @@ function CommonAccountsView({
                   🗑
                 </span>
               </button>
+              {reordering && <div style={{display:"flex",gap:8,marginTop:8}}>
+                <button className="secondary-btn" style={{minHeight:44,flex:1}} aria-label={`Sposta ${account} prima`} disabled={orderBusy || index===0} onClick={() => void moveAccount(account,index-1)}>← Prima</button>
+                <button className="secondary-btn" style={{minHeight:44,flex:1}} aria-label={`Sposta ${account} dopo`} disabled={orderBusy || index===accounts.length-1} onClick={() => void moveAccount(account,index+1)}>Dopo →</button>
+              </div>}
+              </div>
             );
           })}
         </div>
@@ -6085,4 +6140,18 @@ function ReportView({
       </article>
     </section>
   );
+}
+
+function PaymentBreakdown({draft}: {draft:{person:string;kind:string;account:string;amount:number;ticket:number;category:string}}) {
+  if (draft.person !== "Comune") return null;
+  const total = Math.round(draft.amount * 100);
+  const ticket = draft.kind === "Spesa" ? (draft.ticket > 0 ? Math.round(draft.ticket*100) : (/ticket/i.test(draft.category) || draft.account === "Ticket Satispay" ? total : 0)) : 0;
+  const invalid = ticket > total || (draft.account === "Ticket Satispay" && ticket !== total && draft.kind === "Spesa");
+  return <div className="form-note" role="status" aria-live="polite">
+    {!draft.account ? <strong>Seleziona il conto comune da utilizzare.</strong> : invalid ? <strong>Controlla la quota ticket. Per un pagamento misto seleziona il conto che paga la differenza.</strong> : <>
+      <div>Totale {draft.kind === "Spesa" ? "spesa" : "entrata"}: <strong>{euro.format(total/100)}</strong></div>
+      {ticket > 0 && <div>Da Ticket Satispay: <strong>{euro.format(ticket/100)}</strong></div>}
+      {draft.account !== "Ticket Satispay" ? <div>{draft.kind === "Spesa" ? "Da scalare da" : "Da accreditare su"} {draft.account}: <strong>{euro.format((total-ticket)/100)}</strong></div> : draft.kind === "Entrata" && <div>Da accreditare su Ticket Satispay: <strong>{euro.format(total/100)}</strong></div>}
+    </>}
+  </div>;
 }

@@ -23,7 +23,7 @@ export async function PATCH(request: Request) {
   try {
     const denied = await requireAppAccess(request);
     if (denied) return denied;
-    const payload = (await request.json()) as { title?: string; commonAccounts?: string[] };
+    const payload = (await request.json()) as { title?: string; commonAccounts?: string[]; mode?: "reorder" };
     const title = payload.title?.trim() ?? "";
     if (!title || title.length > 40) {
       return Response.json({ error: "Il nome deve contenere da 1 a 40 caratteri" }, { status: 400 });
@@ -32,6 +32,11 @@ export async function PATCH(request: Request) {
     if (commonAccounts && (commonAccounts.length < 1 || commonAccounts.some((item) => !item || item.length > 60) || new Set(commonAccounts.map((item) => item.toLowerCase())).size !== commonAccounts.length)) return Response.json({ error: "Serve almeno un conto e i nomi devono essere diversi" }, { status: 400 });
     const db = await getDb(); const oldRows = await db.select().from(settings).limit(1); let oldAccounts = ["N26", "BBVA Dafragu", "BBVA Utenze", "Ticket Satispay"];
     try { const parsed = JSON.parse(oldRows[0]?.commonAccounts ?? "[]"); if (Array.isArray(parsed) && parsed.length >= 1) oldAccounts = parsed; } catch { /* defaults */ }
+    if (payload.mode === "reorder") {
+      if (!commonAccounts || commonAccounts.length !== oldAccounts.length || oldAccounts.some((name: string) => !commonAccounts.includes(name))) return Response.json({error:"L’elenco conti è cambiato. Aggiorna e riprova."},{status:409});
+      await db.update(settings).set({commonAccounts:JSON.stringify(commonAccounts),updatedAt:new Date().toISOString()}).where(eq(settings.id,oldRows[0].id));
+      return Response.json({title:oldRows[0].title,commonAccounts});
+    }
     if (commonAccounts) for (let index = 0; index < Math.min(oldAccounts.length, commonAccounts.length); index += 1) { if (oldAccounts[index] !== commonAccounts[index]) { await db.update(movements).set({ commonAccount: commonAccounts[index] }).where(eq(movements.commonAccount, oldAccounts[index])); await db.update(commonAccountTransactions).set({ account: commonAccounts[index] }).where(eq(commonAccountTransactions.account, oldAccounts[index])); await db.update(utilityBills).set({ wallet: commonAccounts[index], commonAccount: commonAccounts[index] }).where(eq(utilityBills.wallet, oldAccounts[index])); } }
     await db.insert(settings).values({ id: 1, title, commonAccounts: JSON.stringify(commonAccounts ?? oldAccounts) }).onConflictDoUpdate({ target: settings.id, set: { title, commonAccounts: JSON.stringify(commonAccounts ?? oldAccounts), updatedAt: new Date().toISOString() } });
     return Response.json({ title, commonAccounts: commonAccounts ?? oldAccounts });
