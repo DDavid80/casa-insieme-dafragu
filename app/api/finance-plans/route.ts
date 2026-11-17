@@ -127,9 +127,10 @@ async function materializeAnnualBills(db: Awaited<ReturnType<typeof getDb>>, tod
     groups.set(key, [...(groups.get(key) ?? []), bill]);
   }
   for (const group of groups.values()) {
-    const latest = [...group].sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id)[0];
-    // Conflicting price/frequency configurations require a user decision.
-    if (!latest.recurring || latest.billingFrequency !== "annual" || group.some(b=>b.amountCents!==latest.amountCents||b.billingFrequency!=="annual"||!b.recurring)) continue;
+    const recurring = group.filter((bill) => bill.recurring);
+    const latest = [...recurring].sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id)[0];
+    // Ignore old one-off invoices; only conflicting recurring rules need a user decision.
+    if (!latest || latest.billingFrequency !== "annual" || recurring.some(b=>b.amountCents!==latest.amountCents||b.billingFrequency!=="annual")) continue;
     const start = new Date(`${latest.date}T12:00:00`);
     for(let year=start.getFullYear()+1; year<=Number(today.slice(0,4)); year++) {
       const date=iso(dueDate(year,start.getMonth(),start.getDate()));
