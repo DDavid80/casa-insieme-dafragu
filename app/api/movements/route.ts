@@ -1,3 +1,4 @@
+import { deleteAccountTransfer } from "../../../lib/account-transfers";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { commonAccountTransactions, goalContributions, movements, scheduledMovements, tripRepayments, trips, utilityBills } from "../../../db/schema";
@@ -33,6 +34,7 @@ export async function GET(request: Request) {
         ticketAmount: row.ticketAmountCents / 100,
         goalId: row.goalId,
         scheduleId: row.scheduleId,
+        transferId: row.transferId,
         date: row.date,
         createdAt: row.createdAt,
       })),
@@ -167,6 +169,8 @@ export async function DELETE(request: Request) {
     }
 
     const db = await getDb();
+    const [old] = await db.select().from(movements).where(eq(movements.id,id));
+    if (old?.transferId) return deleteAccountTransfer(db,old.transferId);
     await db.delete(utilityBills).where(eq(utilityBills.movementId, id));
     await db.delete(goalContributions).where(eq(goalContributions.sourceMovementId, id));
     await db.delete(commonAccountTransactions).where(eq(commonAccountTransactions.sourceMovementId, id));
@@ -197,6 +201,8 @@ export async function PATCH(request: Request) {
     if (payload.commonAccount === "Ticket Satispay" && payload.kind === "Spesa" && ticketAmount !== amount) return Response.json({error:"Per un pagamento misto seleziona il conto che paga la differenza"},{status:400});
     const personalAmount = payload.kind === "Spesa" && (payload.person === "Davide" || payload.person === "Francesca") ? amount - ticketAmount : amount;
     const db = await getDb();
+    const [existing] = await db.select().from(movements).where(eq(movements.id,id));
+    if (existing?.transferId) return Response.json({error:"Modifica il trasferimento dalla sezione Conti comuni"},{status:409});
     await db.delete(commonAccountTransactions).where(eq(commonAccountTransactions.sourceMovementId, id));
     await db.delete(goalContributions).where(eq(goalContributions.sourceMovementId, id));
     const [row] = await db.update(movements).set({ kind: payload.kind, description, category, amountCents: Math.round(personalAmount * 100), person: payload.person, commonAccount: payload.commonAccount ?? null, ticketAmountCents: Math.round(ticketAmount * 100), goalId: payload.goalId ?? null, date: payload.date }).where(eq(movements.id, id)).returning();

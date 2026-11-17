@@ -181,7 +181,7 @@ export async function POST(request: Request) {
               const row = item as Record<string, unknown>;
               return client
                 .prepare(
-                  "INSERT INTO common_account_transactions (account, direction, description, category, amount_cents, date, source_movement_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                  "INSERT INTO common_account_transactions (account, direction, description, category, amount_cents, date, source_movement_id, created_at, transfer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 )
                 .bind(
                   row.account,
@@ -192,6 +192,7 @@ export async function POST(request: Request) {
                   row.date,
                   row.sourceMovementId ?? null,
                   row.createdAt,
+                  row.transferId ?? null,
                 );
             }),
           );

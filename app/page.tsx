@@ -42,6 +42,7 @@ type Theme = "crema" | "tortora" | "grigio" | "salvia" | "oceano" | "ametista" |
 type GraphicStyle = "base" | "ios" | "cartoon" | "eighties";
 
 type Movement = {
+  transferId?: string | null;
   id: number;
   kind: Kind;
   description: string;
@@ -58,6 +59,7 @@ type Movement = {
 type DashboardPlanPayment = Movement & { planId: number };
 
 type CommonTransaction = {
+  transferId?: string | null;
   id: number;
   account: CommonAccount;
   direction: Kind;
@@ -201,6 +203,7 @@ function isOpeningBalance(movement: Movement) {
   );
 }
 function isInternalTransfer(movement: Movement) {
+  if (movement.transferId || movement.category === "Trasferimento interno") return true;
   // A personal transfer to a shared account is still a real monthly
   // outflow for that person. It must therefore contribute to Spese and
   // reduce Risparmio, while the mirrored account transaction updates the
@@ -294,8 +297,11 @@ export default function Home() {
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const [draftAccount,setDraftAccount]=useState("");
   const [draftAmount,setDraftAmount]=useState("");
-  const [draftDirection,setDraftDirection]=useState<"Entrata"|"Spesa">("Spesa");
+  const [draftDirection,setDraftDirection]=useState<"Entrata"|"Spesa"|"Trasferimento">("Spesa");
   const [draftDate,setDraftDate]=useState(localDateKey());
+  const [draftDestination,setDraftDestination]=useState("");
+  const [commonSaving,setCommonSaving]=useState(false);
+  const [commonError,setCommonError]=useState("");
   const [commonModalOpen, setCommonModalOpen] = useState(false);
   const [editingCommon, setEditingCommon] = useState<CommonTransaction | null>(
     null,
@@ -536,6 +542,11 @@ export default function Home() {
         ]) => {
           if (!active) return;
           setMovements(movementData.movements);
+          Promise.all([fetch("/api/movements"),fetch("/api/common-accounts"),fetch("/api/utilities")]).then(async responses=>{
+            if(responses.some(r=>!r.ok))return;
+            const [m,c,u]=await Promise.all(responses.map(r=>r.json()));
+            if(active){setMovements(m.movements);setCommonTransactions(c.transactions);setUtilityBills(u.bills);}
+          }).catch(()=>{});
           setNotes(noteData.notes);
           const coverNote = noteData.notes.find((note) => note.content.startsWith(COVER_MESSAGE_PREFIX));
           if (coverNote) {
@@ -847,6 +858,7 @@ export default function Home() {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Eliminazione non riuscita");
+      if(deletingMovement.transferId){window.location.reload();return;}
       setMovements((current) =>
         current.filter((movement) => movement.id !== deletingMovement.id),
       );
@@ -1316,11 +1328,13 @@ export default function Home() {
 
   async function addCommonTransaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if(commonSaving)return;setCommonSaving(true);setCommonError("");
     const form = new FormData(event.currentTarget);
     const selectedCategory = String(form.get("category"));
     const customCategory = String(form.get("customCategory") ?? "").trim();
     const payload = {
       account: String(form.get("account")),
+      destinationAccount: String(form.get("destinationAccount") ?? ""),
       kind: String(form.get("kind")),
       description: String(form.get("description")),
       category:
@@ -1337,29 +1351,33 @@ export default function Home() {
         body: JSON.stringify(payload),
       });
       const data = (await response.json()) as {
+        transactions?: CommonTransaction[];
+        movements?: Movement[];
         transaction?: CommonTransaction;
         movement?: Movement;
         error?: string;
       };
       if (!response.ok || !data.transaction || !data.movement)
         throw new Error(data.error ?? "Registrazione non salvata");
-      setCommonTransactions((current) => [data.transaction!, ...current]);
-      setMovements((current) => [data.movement!, ...current]);
+      setCommonTransactions((current) => [...(data.transactions ?? [data.transaction!]), ...current]);
+      setMovements((current) => [...(data.movements ?? [data.movement!]), ...current]);
       setCommonModalOpen(false);
       setSyncState("online");
-    } catch {
+    } catch(error) {
+      setCommonError(error instanceof Error?error.message:"Salvataggio non riuscito");
       setSyncState("error");
-    }
+    } finally {setCommonSaving(false);}
   }
 
   async function deleteCommonTransaction(transaction: CommonTransaction) {
-    if (!window.confirm("Eliminare questa registrazione del conto?")) return;
+    if (!window.confirm(transaction.transferId ? "Eliminare l’intero trasferimento da entrambi i conti?" : "Eliminare questa registrazione del conto?")) return;
     try {
       const response = await fetch(
         `/api/common-accounts?id=${transaction.id}`,
         { method: "DELETE" },
       );
       if (!response.ok) throw new Error();
+      if (transaction.transferId) {window.location.reload();return;}
       setCommonTransactions((current) =>
         current.filter((item) => item.id !== transaction.id),
       );
@@ -1403,6 +1421,7 @@ export default function Home() {
       setSyncState("error");
       return;
     }
+    if (editingCommon.transferId) {window.location.reload();return;}
     setCommonTransactions((items) =>
       items.map((item) =>
         item.id === editingCommon.id ? data.transaction! : item,
@@ -2239,7 +2258,7 @@ export default function Home() {
                 <MovementList
                   movements={visibleMovements.slice(0, 4)}
                   onDelete={setDeletingMovement}
-                  onEdit={setEditingMovement}
+                  onEdit={(m) => {if(m.transferId){const t=commonTransactions.find(t=>t.sourceMovementId===m.id);if(t)setEditingCommon(t);}else setEditingMovement(m);}}
                 />
               </article>
             </section>
@@ -2285,7 +2304,7 @@ export default function Home() {
               movements={movementPeriodItems}
               expanded
               onDelete={setDeletingMovement}
-              onEdit={setEditingMovement}
+              onEdit={(m) => {if(m.transferId){const t=commonTransactions.find(t=>t.sourceMovementId===m.id);if(t)setEditingCommon(t);}else setEditingMovement(m);}}
             />
           </section>
         )}
@@ -2298,7 +2317,7 @@ export default function Home() {
             selectedAccount={selectedCommonAccount}
             selectedPerson={filter}
             onSelect={setSelectedCommonAccount}
-            onAdd={() => {setDraftAccount(selectedCommonAccount === "Tutti" ? commonAccounts[0] : selectedCommonAccount);setDraftAmount("");setDraftDirection("Spesa");setDraftDate(localDateKey());setCommonModalOpen(true);}}
+            onAdd={() => {setDraftAccount(selectedCommonAccount === "Tutti" ? commonAccounts[0] : selectedCommonAccount);setDraftAmount("");setDraftDirection("Spesa");setDraftDate(localDateKey());setDraftDestination("");setCommonError("");setCommonModalOpen(true);}}
             onAddAccount={() => setNewAccountOpen(true)}
             onAlign={() => setBalanceModalOpen(true)}
             balancesVisible={balancesVisible}
@@ -2635,7 +2654,7 @@ export default function Home() {
           >
             <span className="warning-icon">🗑️</span>
             <p className="panel-kicker">Conferma eliminazione</p>
-            <h2 id="delete-title">Eliminare questo movimento?</h2>
+            <h2 id="delete-title">{deletingMovement.transferId ? "Eliminare il trasferimento da entrambi i conti?" : "Eliminare questo movimento?"}</h2>
             <div className="delete-summary">
               <strong>{deletingMovement.description}</strong>
               <span>
@@ -3484,25 +3503,27 @@ export default function Home() {
               <label>
                 <input type="radio" name="kind" value="Entrata" checked={draftDirection==="Entrata"} onChange={()=>setDraftDirection("Entrata")} /> Entrata
               </label>
+              <label><input type="radio" name="kind" value="Trasferimento" checked={draftDirection==="Trasferimento"} onChange={()=>setDraftDirection("Trasferimento")} /> Trasferimento</label>
             </div>
             <label>
-              Conto
+              {draftDirection === "Trasferimento" ? "Dal conto" : "Conto"}
               <select name="account" value={draftAccount} onChange={e=>setDraftAccount(e.target.value)}>
-                {commonAccounts.map((account) => (
+                {commonAccounts.filter(a=>draftDirection!=="Trasferimento"||a!=="Ticket Satispay").map((account) => (
                   <option key={account}>{account}</option>
                 ))}
               </select>
             </label>
+            {draftDirection === "Trasferimento" && <label>Al conto<select name="destinationAccount" value={draftDestination} required onChange={e=>setDraftDestination(e.target.value)}><option value="">Seleziona il conto di destinazione</option>{commonAccounts.filter(a=>a!==draftAccount && a!=="Ticket Satispay").map(a=><option key={a}>{a}</option>)}</select></label>}
             <p>Saldo attuale · {draftAccount}: <strong>{euro.format(accountBalance(draftAccount,commonTransactions,balanceAdjustments))}</strong></p>
             <label>
               Descrizione
               <input
                 name="description"
                 placeholder="Es. Cena, bonifico, rimborso…"
-                required
+                required={draftDirection!=="Trasferimento"}
               />
             </label>
-            <div className="form-row">
+            {draftDirection!=="Trasferimento" && <div className="form-row">
               <label>
                 Categoria
                 <select name="category" defaultValue="Altro">
@@ -3518,7 +3539,7 @@ export default function Home() {
                 Categoria libera
                 <input name="customCategory" placeholder="Se Altro" />
               </label>
-            </div>
+            </div>}
             <div className="form-row">
               <label>
                 Importo
@@ -3540,8 +3561,10 @@ export default function Home() {
                 />
               </label>
             </div>
-            <p aria-live="polite">Saldo di oggi dopo il salvataggio: <strong>{draftDate && Number(draftAmount)>0 ? euro.format(accountBalance(draftAccount,[...commonTransactions,{account:draftAccount,date:draftDate,createdAt:new Date().toISOString().replace("T"," ").slice(0,19),direction:draftDirection,amount:Math.round(Number(draftAmount)*100)/100} as CommonTransaction],balanceAdjustments)) : "—"}</strong>{draftDate>localDateKey() && <small> · Movimento futuro: il saldo di oggi non cambia.</small>}</p>
-            <button className="primary-btn full">Salva movimento</button>
+            <p aria-live="polite">Saldo di oggi dopo il salvataggio: <strong>{draftDate && Number(draftAmount)>0 ? euro.format(accountBalance(draftAccount,[...commonTransactions,{account:draftAccount,date:draftDate,createdAt:new Date().toISOString().replace("T"," ").slice(0,19),direction:draftDirection==="Trasferimento"?"Spesa":draftDirection,amount:Math.round(Number(draftAmount)*100)/100} as CommonTransaction],balanceAdjustments)) : "—"}</strong>{draftDate>localDateKey() && <small> · Movimento futuro: il saldo di oggi non cambia.</small>}</p>
+            {draftDirection==="Trasferimento" && <div className="form-note" aria-live="polite"><p>−{euro.format(Number(draftAmount)||0)} da {draftAccount} → +{euro.format(Number(draftAmount)||0)} su {draftDestination || "conto da scegliere"}.</p>{draftDestination && <p>Saldo destinazione dopo il salvataggio: <strong>{euro.format(accountBalance(draftDestination,[...commonTransactions,{account:draftDestination,date:draftDate,createdAt:new Date().toISOString().replace("T"," ").slice(0,19),direction:"Entrata",amount:Math.round(Number(draftAmount||0)*100)/100} as CommonTransaction],balanceAdjustments))}</strong></p>}<p>Spostamento tra conti: non aggiunge spese o entrate mensili.</p></div>}
+            {commonError && <p role="alert">{commonError}</p>}
+            <button className="primary-btn full" disabled={commonSaving}>{commonSaving ? "Salvataggio…" : draftDirection==="Trasferimento" ? "Salva trasferimento" : "Salva movimento"}</button>
           </form>
         </Modal>
       )}

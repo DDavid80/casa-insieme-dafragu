@@ -12,6 +12,7 @@ import {
   personalPlanPayments,
   personalPlans,
   scheduledMovements,
+  utilityBills,
 } from "../../../db/schema";
 import {
   requireAppAccess,
@@ -118,10 +119,37 @@ async function addMovementEffects(
     });
 }
 
+async function materializeAnnualBills(db: Awaited<ReturnType<typeof getDb>>, today: string) {
+  const bills = await db.select().from(utilityBills);
+  const groups = new Map<string, typeof bills>();
+  for (const bill of bills) {
+    const key = `${bill.provider.trim().toLowerCase()}|${bill.wallet}|${bill.commonAccount ?? ""}`;
+    groups.set(key, [...(groups.get(key) ?? []), bill]);
+  }
+  for (const group of groups.values()) {
+    const latest = [...group].sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id)[0];
+    // Conflicting price/frequency configurations require a user decision.
+    if (!latest.recurring || latest.billingFrequency !== "annual" || group.some(b=>b.amountCents!==latest.amountCents||b.billingFrequency!=="annual"||!b.recurring)) continue;
+    const start = new Date(`${latest.date}T12:00:00`);
+    for(let year=start.getFullYear()+1; year<=Number(today.slice(0,4)); year++) {
+      const date=iso(dueDate(year,start.getMonth(),start.getDate()));
+      if(date>today || date<"2026-11-01")continue;
+      if((await db.select().from(utilityBills).where(and(eq(utilityBills.provider,latest.provider),eq(utilityBills.wallet,latest.wallet),eq(utilityBills.date,date)))).length)continue;
+      const description=`${latest.service} · ${latest.provider}`;
+      const [existing]=await db.select().from(movements).where(and(eq(movements.description,description),eq(movements.date,date),eq(movements.amountCents,latest.amountCents))).limit(1);
+      let movement=existing;
+      if(!movement){[movement]=await db.insert(movements).values({kind:"Spesa",description,category:"Utenze",amountCents:latest.amountCents,person:latest.wallet==="Davide"?"Davide":latest.wallet==="Francesca"?"Francesca":"Comune",commonAccount:latest.commonAccount,date}).returning();await addMovementEffects(db,movement);}
+      const {id,createdAt,...copy}=latest;
+      await db.insert(utilityBills).values({...copy,movementId:movement.id,date,dueDate:date,invoiceNumber:null,periodStart:null,periodEnd:null,deadlineId:null});
+    }
+  }
+}
+
 async function materialize() {
   const db = await getDb();
   const today = new Date();
   today.setHours(12, 0, 0, 0);
+  await materializeAnnualBills(db, iso(today));
   for (const plan of await db.select().from(personalPlans)) {
     if (
       !plan.active ||

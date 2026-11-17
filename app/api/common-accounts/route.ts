@@ -1,3 +1,4 @@
+import { createAccountTransfer, updateAccountTransfer, deleteAccountTransfer } from "../../../lib/account-transfers";
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { balanceAdjustments, commonAccountTransactions, goalContributions, goals, movements } from "../../../db/schema";
@@ -85,7 +86,8 @@ export async function POST(request: Request) {
   try {
     const denied = await requireAppAccess(request);
     if (denied) return denied;
-    const payload = (await request.json()) as { account?: string; kind?: "Entrata" | "Spesa"; description?: string; category?: string; amount?: number; date?: string };
+    const payload = (await request.json()) as { destinationAccount?: string; account?: string; kind?: "Entrata" | "Spesa" | "Trasferimento"; description?: string; category?: string; amount?: number; date?: string };
+    if (payload.kind === "Trasferimento") return createAccountTransfer(await getDb(),payload);
     const amount = Number(payload.amount);
     const account = payload.account ?? "";
     const description = payload.description?.trim() ?? "";
@@ -111,6 +113,7 @@ export async function DELETE(request: Request) {
   const db = await getDb();
   const rows = await db.select().from(commonAccountTransactions).where(eq(commonAccountTransactions.id, id)).limit(1);
   if (!rows.length) return Response.json({ error: "Registrazione non trovata" }, { status: 404 });
+  if (rows[0].transferId) return deleteAccountTransfer(db,rows[0].transferId);
   await db.delete(commonAccountTransactions).where(eq(commonAccountTransactions.id, id));
   if (rows[0].sourceMovementId) await db.delete(goalContributions).where(eq(goalContributions.sourceMovementId, rows[0].sourceMovementId));
   if (rows[0].sourceMovementId) await db.delete(movements).where(eq(movements.id, rows[0].sourceMovementId));
@@ -124,6 +127,7 @@ export async function PATCH(request: Request) {
     const id = Number(payload.id); const amount = Number(payload.amount); const account = payload.account?.trim() ?? ""; const description = payload.description?.trim() ?? ""; const category = payload.category?.trim() ?? "";
     if (!Number.isInteger(id) || id <= 0 || !account || !payload.kind || !description || !category || !payload.date || !Number.isFinite(amount) || amount <= 0) return Response.json({ error: "Dati del conto non validi" }, { status: 400 });
     const db = await getDb(); const [old] = await db.select().from(commonAccountTransactions).where(eq(commonAccountTransactions.id, id)); if (!old) return Response.json({ error: "Registrazione non trovata" }, { status: 404 });
+    if (old.transferId) return updateAccountTransfer(db,old,payload);
     if (old.sourceMovementId) await db.delete(goalContributions).where(eq(goalContributions.sourceMovementId, old.sourceMovementId));
     const [transaction] = await db.update(commonAccountTransactions).set({ account, direction: payload.kind, description, category, amountCents: Math.round(amount * 100), date: payload.date }).where(eq(commonAccountTransactions.id, id)).returning();
     let movement = null; if (old.sourceMovementId) [movement] = await db.update(movements).set({ kind: payload.kind, description, category, amountCents: Math.round(amount * 100), person: "Comune", commonAccount: account, date: payload.date }).where(eq(movements.id, old.sourceMovementId)).returning();

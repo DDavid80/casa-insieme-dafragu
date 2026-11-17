@@ -190,6 +190,13 @@
       "when": 1789445193481,
       "tag": "0026_broad_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1794821409986,
+      "tag": "0027_jazzy_blackheart",
+      "breakpoints": true
     }
   ]
 }

@@ -73,8 +73,8 @@ async function handle(input:RequestInfo|URL,init?:RequestInit){
  if(!localStorage.getItem(TOKEN_KEY))return json({error:'Accesso richiesto'},401);
  const route=routes[url.pathname];if(!route?.[method])return json({error:'Operazione non disponibile sul nuovo archivio'},501);
  if(!loaded)await reload();
- if(method==='GET'){const cached=snapshot(url.pathname);if(cached)return json(cached);}
- if(method!=='GET')await prepareWrite();else await loadDatabase(rawData);
+ if(method==='GET' && url.pathname!=='/api/finance-plans'){const cached=snapshot(url.pathname);if(cached)return json(cached);}
+ if(method!=='GET'||url.pathname==='/api/finance-plans')await prepareWrite();else await loadDatabase(rawData);
  const before=await exportDatabase();
  const req=new Request(url.href,{...init,method});
  const result:Response=await route[method](req);

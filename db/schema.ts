@@ -18,6 +18,7 @@ export const movements = sqliteTable("movements", {
   ticketAmountCents: integer("ticket_amount_cents").notNull().default(0),
   goalId: integer("goal_id"),
   scheduleId: integer("schedule_id"),
+  transferId: text("transfer_id"),
   date: text("date").notNull(),
   createdAt: text("created_at")
     .notNull()
@@ -240,6 +241,7 @@ export const commonAccountTransactions = sqliteTable(
     amountCents: integer("amount_cents").notNull(),
     date: text("date").notNull(),
     sourceMovementId: integer("source_movement_id"),
+    transferId: text("transfer_id"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
