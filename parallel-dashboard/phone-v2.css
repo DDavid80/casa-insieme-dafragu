@@ -1,0 +1,56 @@
+/* Casa Insieme: phone workspace. Desktop keeps the existing layout. */
+.phone-tools { display:none }
+@media (max-width:760px) {
+  .app-shell .topbar {display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:center!important;gap:8px 12px;margin-bottom:12px}
+  .app-shell .topbar h1 {font-size:clamp(1.35rem,5.5vw,1.85rem)}
+  .topbar .phone-tools {display:block;min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font-weight:700}
+  .app-shell .top-actions {grid-column:1/-1;gap:6px}
+  .phone-tools[aria-expanded="false"] ~ .top-actions > :is(.cover-return-btn,.graphic-switch,.theme-picker) {display:none!important}
+  .top-actions .people-filter button,.top-actions .graphic-switch button {min-height:44px}
+  .content .dashboard-period-bar {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center}
+  .content .dashboard-period-bar select {min-width:0;width:100%;font-size:16px}
+  .content :is(.account-detail-actions,.inline-actions,.repayment-summary,.trip-hero,.plan-dates,.export-actions){flex-wrap:wrap;max-width:100%;row-gap:8px}
+  .content .movement-copy :is(strong,small){white-space:normal;overflow-wrap:anywhere;text-overflow:clip}
+  .content .movement-row .amount {font-variant-numeric:tabular-nums;align-self:start}
+  .content .movement-row .row-actions {grid-column:2/-1;justify-content:flex-end}
+  .content :is(.delete-btn,.collapse-card-btn,.persistent-card-toggle),.modal .close-btn {min-width:44px;min-height:44px}
+  .content .account-grid {grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:10px}
+  .account-grid .account-card {padding:12px;align-content:start;overflow-wrap:anywhere}
+  .account-grid .account-card > span:first-of-type {padding-right:34px}
+  .account-grid .account-card small {padding-right:44px;min-height:38px}
+  .account-grid .account-card .account-delete {min-width:40px;min-height:40px;right:4px;bottom:4px;opacity:1}
+  .account-sort-item > div {flex-wrap:wrap}
+  .content :is(.utility-detail-row,.plan-card,.budget-row,.decision-card,.travel-expense,.repayment-list article,.report-numbers,.advice-card) {min-width:0;overflow-wrap:anywhere}
+  .content :is(.account-detail,.panel,.travel-detail) select,.modal :is(select,input,textarea){box-sizing:border-box;min-width:0;max-width:100%}
+  .modal :is(label,.form-row,.form-row > *) {min-width:0}
+  .modal input:not([type="checkbox"]):not([type="radio"]),.modal select,.modal textarea {font-size:16px;width:100%}
+  .app-shell .sidebar:not(.mobile-open) {visibility:hidden}
+  .app-shell .sidebar.mobile-open {visibility:visible}
+  .app-shell .sidebar {overflow-y:auto;overscroll-behavior:contain}
+  .app-shell .sidebar nav {min-height:0}
+  html:has(.modal-backdrop,.mobile-menu-backdrop,#dup-review),body:has(.modal-backdrop,.mobile-menu-backdrop,#dup-review){overflow:hidden}
+  body:has(.modal-backdrop,#dup-review) .mobile-dock {visibility:hidden;pointer-events:none}
+  .app-shell .mobile-dock {grid-template-columns:repeat(5,minmax(0,1fr))}
+  .content .dashboard-grid,.content .page-grid {grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px), (max-height:600px) and (max-width:1000px) and (orientation:landscape) {
+  .app-shell .modal-backdrop {inset:var(--phone-top,0px) 0 auto;height:var(--phone-height,100dvh);box-sizing:border-box;padding:max(4px,env(safe-area-inset-top)) max(6px,env(safe-area-inset-right)) 0 max(6px,env(safe-area-inset-left));grid-template-rows:minmax(0,1fr);align-items:end;z-index:90}
+  .app-shell .modal-backdrop > .modal {box-sizing:border-box;max-height:100%;min-height:0;overflow:auto;overscroll-behavior:contain;padding-bottom:max(15px,env(safe-area-inset-bottom));scroll-padding-block:48px 75px}
+  .app-shell .modal form > button[type=submit] {position:sticky;bottom:0;min-height:48px;z-index:3}
+  .app-shell .modal form > button[type=submit]::before {content:none}
+  .app-shell .modal .close-btn {background:var(--card);color:var(--ink);min-width:44px;min-height:44px}
+}
+@media(max-width:380px) {
+  .content .dashboard-period-bar {grid-template-columns:minmax(0,1fr)}
+  .content .owner-split span {grid-template-columns:minmax(0,.8fr) repeat(2,minmax(0,1fr))}
+}
+@media (max-height:600px) and (max-width:1000px) and (orientation:landscape) {
+  .app-shell .content .dashboard-grid {grid-template-columns:minmax(0,1fr)}
+  .app-shell .content .topbar {flex-wrap:wrap}
+  .app-shell .content .top-actions {min-width:0;max-width:100%;flex-wrap:wrap}
+  .app-shell .content .kpi-grid {grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:760px) {
+  .movement-form:has(input[name=automaticMonthly]:not(:checked)) .form-row:has(input[name=monthlyDay]) {display:none}
+  .account-detail {scroll-margin-top:12px}
+}
