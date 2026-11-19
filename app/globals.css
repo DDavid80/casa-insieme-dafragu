@@ -1893,13 +1893,101 @@ body {
     z-index:4;
     min-height:50px;
     margin-top:6px;
-    box-shadow:0 -10px 20px color-mix(in srgb, var(--card) 92%, transparent), 0 10px 22px rgba(0,0,0,.16);
+    box-shadow:0 -14px 0 6px var(--card), 0 30px 0 6px var(--card);
   }
-  .modal form > button[type="submit"]::before {
-    content:"";
-    position:absolute;
-    z-index:-1;
-    inset:-14px -8px -8px;
-    background:var(--card);
-  }
+  .modal form > button[type="submit"]::before { content:none; }
+}
+
+/* =====================================================================
+   Ottimizzazione telefono (≤760px)
+   Blocco volutamente in coda: vince sulle regole mobili precedenti.
+   ===================================================================== */
+@media (max-width: 760px) {
+  /* 1. Mai scorrimento orizzontale: le colonne non si allargano al contenuto. */
+  .content { max-width: 100vw; overflow-x: clip; }
+  .content > *, .page-grid > *, .dashboard-grid > *, .finance-plans > *, .plan-grid > * { min-width: 0; }
+  .finance-plans, .plan-grid, .page-grid, .dashboard-grid, .goals-grid, .account-grid { grid-template-columns: minmax(0, 1fr); }
+  .subscription-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .subscription-kpis > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .subscription-kpis strong, .subscription-kpis span, .subscription-kpis small { overflow-wrap: anywhere; }
+
+  /* 2. Intestazione: titolo a sinistra, comandi a destra, filtro persone su una riga sua (niente sovrapposizioni). */
+  .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 12px; padding-bottom: 0; margin-bottom: 16px; }
+  .topbar > div:first-child { grid-column: 1; grid-row: 1 / span 3; min-width: 0; }
+  .top-actions { display: contents; }
+  .top-actions > .graphic-switch { grid-column: 2; grid-row: 1; justify-self: end; }
+  .top-actions > .cover-return-btn { grid-column: 2; grid-row: 2; justify-self: end; min-height: 40px; }
+  .top-actions > .theme-picker { grid-column: 2; grid-row: 3; justify-self: end; max-width: none; min-height: 40px; align-items: center; }
+  .top-actions > .people-filter { position: static; grid-column: 1 / -1; grid-row: 4; width: 100%; margin-top: 2px; }
+  .graphic-switch button { min-height: 34px; padding: 6px 9px; font-size: 10px; }
+  .theme-picker select { max-width: 130px; min-height: 36px; font-size: 16px; }
+  .people-filter button { min-height: 44px; padding: 0 4px; font-size: 12px; }
+
+  /* 3. Punti da toccare: almeno 40px. */
+  .delete-btn { width: 40px; height: 40px; }
+  .persistent-card-toggle { min-height: 40px; padding: 8px 13px; font-size: 11px; }
+  .text-btn { min-height: 44px; padding: 10px 8px; }
+  .icon-add { width: 44px; height: 44px; }
+  .chat-heading-actions .people-filter { margin-top: 0; }
+
+  /* 4. Titoli dei pannelli: vanno a capo, il tasto Richiudi resta a destra del titolo. */
+  .panel-heading { flex-wrap: wrap; row-gap: 12px; }
+  .panel-heading > :first-child { flex: 1 1 150px; min-width: 0; }
+  .panel-heading > .persistent-card-toggle { order: 1; align-self: flex-start; }
+  .panel-heading > :not(:first-child):not(.persistent-card-toggle) { order: 2; }
+
+  /* 5. Righe dei movimenti: descrizione fino a 2 righe, importo e azioni in colonna a destra. */
+  .movement-row, .expanded .movement-row { grid-template-columns: 43px minmax(0, 1fr) auto; grid-template-areas: "icon copy amount" "icon copy actions"; align-items: start; column-gap: 11px; row-gap: 0; }
+  .movement-row > .movement-icon { grid-area: icon; align-self: center; }
+  .movement-row > .movement-copy { grid-area: copy; }
+  .movement-row > .amount { grid-area: amount; justify-self: end; text-align: right; white-space: nowrap; }
+  .movement-row > .row-actions { grid-area: actions; justify-self: end; gap: 0; margin-right: -6px; }
+  .movement-copy strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow: hidden; overflow-wrap: anywhere; line-height: 1.25; }
+  .movement-copy small { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+}
+
+@media (max-width: 760px) {
+  /* Pannelli a griglia: la colonna non si allarga oltre lo schermo (Abbonamenti, Piani e rate). */
+  .panel.page-panel, .subscriptions-page { grid-template-columns: minmax(0, 1fr); min-width: 0; }
+
+  /* Gruppi di bottoni: vanno a capo invece di uscire dallo schermo e restano facili da toccare. */
+  .subscription-actions, .plan-card .row-actions { flex-wrap: wrap; justify-content: flex-start; }
+  .subscription-actions button, .subscription-close { min-height: 44px; flex: 1 1 auto; }
+  .plan-card .row-actions { gap: 6px; }
+  .plan-card .row-actions .secondary-btn { flex: 1 1 calc(50% - 6px); min-width: 0; }
+  .plan-card .row-actions .delete-btn { flex: 0 0 auto; }
+  .secondary-btn { min-height: 44px; }
+  .delete-btn { flex: 0 0 auto; min-width: 40px; }
+
+  /* Selettori a segmenti e piccoli comandi: area di tocco di almeno 40px. */
+  .chart-switch button, .status-switch button { min-height: 40px; padding: 8px 12px; }
+  .collapse-card-btn { min-height: 40px; min-width: 40px; padding: 8px 12px; font-size: 11px; }
+  .compact-select, select.compact-select { min-height: 44px; }
+  .complete-btn { width: 40px; height: 40px; font-size: 19px; }
+  .account-card .account-delete { width: 36px; height: 36px; right: 8px; bottom: 7px; font-size: 16px; }
+  .graphic-switch button { min-height: 40px; padding: 6px 9px; }
+  .theme-picker select { min-height: 40px; }
+}
+
+@media (max-width: 760px) {
+  /* Note: modifica ed elimina in colonna, entrambi dentro lo schermo. */
+  .note-card { grid-template-columns: 58px minmax(0, 1fr) auto; }
+  .note-card .row-actions { flex-direction: column; align-items: center; }
+  /* Filtri abbonamenti: la scritta del conteggio va a capo. */
+  .subscription-filters { flex-wrap: wrap; row-gap: 8px; }
+  .subscription-filters small { flex: 1 1 100%; white-space: normal; }
+  .graphic-switch button { min-width: 40px; }
+  .account-card .account-delete { width: 40px; height: 40px; right: 6px; bottom: 5px; }
+}
+
+@media (max-width: 760px) {
+  .subscription-toolbar { flex-wrap: wrap; row-gap: 8px; }
+  .subscription-toolbar > small { flex: 1 1 100%; white-space: normal; }
+  .subscription-filters .status-switch { flex: 1 1 100%; }
+  .subscription-filters .status-switch button { flex: 1 1 0; }
+}
+
+/* Titolo pagina: resta sotto ai comandi a destra anche con nomi lunghi. */
+@media (max-width:760px) {
+  .topbar h1 { font-size: clamp(21px, 5.9vw, 28px); line-height: 1.08; overflow-wrap: normal; hyphens: none; }
 }
