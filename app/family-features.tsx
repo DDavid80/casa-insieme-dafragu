@@ -875,7 +875,7 @@ export function TravelView({
   const [modal, setModal] = useState<TravelModal | null>(null);
   const [giftType, setGiftType] = useState<"money" | "object">("money");
   const [saveError, setSaveError] = useState("");
-  const [travelSections, setTravelSections] = useState(() => {
+  const [travelSections, setTravelSections] = useState<{ expenses: boolean; repayments: boolean }>(() => {
     if (typeof window === "undefined") return { expenses: true, repayments: true };
     try {
       return { expenses: true, repayments: true, ...JSON.parse(localStorage.getItem("casa-insieme:travel-sections:v1") || "{}") };

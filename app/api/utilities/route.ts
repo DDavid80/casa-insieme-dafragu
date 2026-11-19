@@ -84,7 +84,6 @@ export async function POST(request: Request) {
       person: isCommon ? "Comune" : payload.wallet as "Davide" | "Francesca",
       commonAccount,
       date: payload.dueDate || payload.date,
-      dueDate: payload.dueDate || null,
     }).returning();
     if (commonAccount) await db.insert(commonAccountTransactions).values({ account: commonAccount, direction: "Spesa", description: `${service} · ${provider}`, category: "Utenze", amountCents: Math.round(amount * 100), date: payload.dueDate || payload.date, sourceMovementId: movement.id });
     const billingFrequency = payload.billingFrequency === "annual" ? "annual" : "monthly";

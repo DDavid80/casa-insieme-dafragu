@@ -114,6 +114,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const denied = await requireAppAccess(request);
   if (denied) return denied;
+  let restoreContext = "inizializzazione";
   try {
     const payload = (await request.json()) as {
       format?: string;
@@ -131,7 +132,6 @@ export async function POST(request: Request) {
       );
     const db = await getDb();
     const client = db.$client;
-    let restoreContext = "inizializzazione";
     const rows = (name: keyof typeof tables) =>
       Array.isArray(payload.data?.[name])
         ? (payload.data[name] as Record<string, unknown>[])
